@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import {
   Plus,
   Filter,
@@ -8,10 +8,15 @@ import {
   Grid,
   Lock,
   Globe2,
-  KeyRound,
-  UserPlus2,
   Check,
   X,
+  Clock,
+  Calendar,
+  Users,
+  Video,
+  Link as LinkIcon,
+  Copy,
+  RefreshCw,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
@@ -19,15 +24,20 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
+import { toast } from "sonner"
+import { useAuth } from "@/contexts/AuthContext"
+import {
+  sendInvitationNotification,
+  sendJoinRequestNotification,
+  sendRequestResponseNotification,
+} from "@/services/notificationService"
 import {
   scheduleSessions,
   type ScheduleSession,
   discoverySessions,
   discoveryFilters,
-  sessionQuestionPresets,
   initialJoinRequests,
   type DiscoverySession,
-  type SessionQuestion,
   type JoinRequest,
 } from "../data/studySessions"
 
@@ -279,6 +289,7 @@ function SessionCard({
 }
 
 const StudySessionPage = () => {
+  const { user } = useAuth()
   const [section, setSection] = useState<"schedule" | "discover" | "create" | "requests">("schedule")
   const [activeTab, setActiveTab] = useState("upcoming")
   const [viewMode, setViewMode] = useState<"list" | "grid">("list")
@@ -287,18 +298,158 @@ const StudySessionPage = () => {
   const [selectedCourse, setSelectedCourse] = useState(discoveryFilters.courses[0])
   const [selectedLocation, setSelectedLocation] = useState(discoveryFilters.locations[0])
   const [showDiscoveryFilters, setShowDiscoveryFilters] = useState(false)
-  const [questionAnswers, setQuestionAnswers] = useState<Record<string, string>>({})
-  const [visibility, setVisibility] = useState<"public" | "private-invite" | "private-password">("public")
+  const [visibility, setVisibility] = useState<"public" | "private-password">("public")
   const [sessionPassword, setSessionPassword] = useState("")
-  const [createStep, setCreateStep] = useState<"questions" | "details" | "done">("questions")
-  const [sessionTitle, setSessionTitle] = useState("")
-  const [sessionCourse, setSessionCourse] = useState("")
-  const [sessionLocation, setSessionLocation] = useState("")
-  const [sessionTime, setSessionTime] = useState("")
+  const [useSystemPassword, setUseSystemPassword] = useState(true)
+  const [createStep, setCreateStep] = useState<"details" | "done">("details")
+  const [studyTopic, setStudyTopic] = useState("")
+  const [selectedFaculties, setSelectedFaculties] = useState<string[]>([])
+  const [participantLimit, setParticipantLimit] = useState("")
+  const [invitedStudentIds, setInvitedStudentIds] = useState<string[]>([])
+  const [currentStudentId, setCurrentStudentId] = useState("")
+  const [googleMeetLink, setGoogleMeetLink] = useState("")
+  const [roomLink, setRoomLink] = useState("")
+  // Initialize date to today
+  const getTodayDate = () => {
+    const today = new Date()
+    return today.toISOString().split("T")[0]
+  }
+
+  const [sessionDate, setSessionDate] = useState(getTodayDate())
+  const [sessionStartTime, setSessionStartTime] = useState("")
+  const [sessionDuration, setSessionDuration] = useState<"30" | "60" | "90" | "120" | "custom">("60")
+  const [customDuration, setCustomDuration] = useState("")
   const [createdLink, setCreatedLink] = useState<string | null>(null)
+
+  // Calculate end time based on start time and duration
+  const calculateEndTime = (): string => {
+    if (!sessionStartTime) return ""
+    const [hours, minutes] = sessionStartTime.split(":").map(Number)
+    const durationMinutes =
+      sessionDuration === "custom" ? parseInt(customDuration) || 60 : parseInt(sessionDuration)
+    const startDate = new Date()
+    startDate.setHours(hours, minutes, 0, 0)
+    const endDate = new Date(startDate.getTime() + durationMinutes * 60000)
+    const endHours = endDate.getHours().toString().padStart(2, "0")
+    const endMinutes = endDate.getMinutes().toString().padStart(2, "0")
+    return `${endHours}:${endMinutes}`
+  }
+
+  // Format date for display
+  const formatDateDisplay = (dateString: string): string => {
+    if (!dateString) return ""
+    const date = new Date(dateString)
+    const today = new Date()
+    const tomorrow = new Date(today)
+    tomorrow.setDate(tomorrow.getDate() + 1)
+
+    if (date.toDateString() === today.toDateString()) {
+      return "Today"
+    } else if (date.toDateString() === tomorrow.toDateString()) {
+      return "Tomorrow"
+    } else {
+      return date.toLocaleDateString("en-US", {
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+      })
+    }
+  }
+
+  // Format time for display (12-hour format)
+  const formatTimeDisplay = (timeString: string): string => {
+    if (!timeString) return ""
+    const [hours, minutes] = timeString.split(":").map(Number)
+    const period = hours >= 12 ? "PM" : "AM"
+    const displayHours = hours % 12 || 12
+    return `${displayHours}:${minutes.toString().padStart(2, "0")} ${period}`
+  }
+
+  // Generate system password
+  const generateSystemPassword = (): string => {
+    return Math.random().toString(36).slice(-8).toUpperCase()
+  }
+
+  // Generate unique room link
+  const generateRoomLink = (): string => {
+    const randomId = Math.random().toString(36).slice(-12)
+    return `https://unicircle.app/study/${randomId}`
+  }
+
+  // Generate Google Meet link
+  const generateGoogleMeetLink = (): string => {
+    const randomId = Math.random().toString(36).slice(-11)
+    return `https://meet.google.com/${randomId}`
+  }
+
+  // Toggle faculty selection
+  const toggleFaculty = (faculty: string) => {
+    if (faculty === "All faculties") {
+      setSelectedFaculties([])
+      return
+    }
+    setSelectedFaculties((prev) => {
+      if (prev.includes(faculty)) {
+        return prev.filter((f) => f !== faculty)
+      }
+      return [...prev, faculty]
+    })
+  }
+
+  // Add invited student
+  const addInvitedStudent = () => {
+    const studentId = currentStudentId.trim()
+    if (studentId && !invitedStudentIds.includes(studentId)) {
+      setInvitedStudentIds((prev) => [...prev, studentId])
+      setCurrentStudentId("")
+      
+      // Send notification to invited student
+      if (user && studyTopic) {
+        sendInvitationNotification(
+          studentId,
+          user.studentId,
+          user.name,
+          studyTopic,
+          `session-${Date.now()}`,
+          roomLink || undefined,
+        )
+      }
+      
+      toast.success("Student invited", {
+        description: `Notification sent to ${studentId}`,
+      })
+    }
+  }
+
+  // Remove invited student
+  const removeInvitedStudent = (studentId: string) => {
+    setInvitedStudentIds((prev) => prev.filter((id) => id !== studentId))
+  }
+
+  // Initialize Google Meet link and room link when component mounts or when creating
+  const initializeRoomLinks = () => {
+    if (!googleMeetLink) {
+      setGoogleMeetLink(generateGoogleMeetLink())
+    }
+    if (!roomLink) {
+      setRoomLink(generateRoomLink())
+    }
+    if (useSystemPassword && visibility === "private-password" && !sessionPassword) {
+      setSessionPassword(generateSystemPassword())
+    }
+  }
+
   const [requests, setRequests] = useState<JoinRequest[]>(initialJoinRequests)
   const [joinedSessions, setJoinedSessions] = useState<Set<string>>(new Set())
   const [requestedSessions, setRequestedSessions] = useState<Set<string>>(new Set())
+
+  // Auto-initialize links when entering create section
+  useEffect(() => {
+    if (section === "create" && createStep === "details") {
+      initializeRoomLinks()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [section, createStep])
 
   const toggleSession = (sessionId: string) => {
     setExpandedSessions(prev => {
@@ -331,12 +482,20 @@ const StudySessionPage = () => {
         next.add(session.id)
         return next
       })
+      toast.success("Joined session!", {
+        description: `You've joined "${session.title}"`,
+      })
       return
     }
 
     // Locked sessions: add a pending join request once
     setRequestedSessions((prevRequested) => {
-      if (prevRequested.has(session.id)) return prevRequested
+      if (prevRequested.has(session.id)) {
+        toast.info("Request already sent", {
+          description: "You've already requested to join this session",
+        })
+        return prevRequested
+      }
 
       const nextRequested = new Set(prevRequested)
       nextRequested.add(session.id)
@@ -344,21 +503,63 @@ const StudySessionPage = () => {
       const newRequest: JoinRequest = {
         id: `local-${Date.now()}-${session.id}`,
         sessionTitle: session.title,
-        requesterName: "You",
-        requesterInitials: "YO",
+        requesterName: user?.name || "You",
+        requesterInitials: user?.initials || "YO",
         requestedAt: "Just now",
         status: "pending",
       }
 
       setRequests((prev) => [newRequest, ...prev])
+      
+      // Send notification to session host
+      // For demo: extract host student ID from host name (mock)
+      // In real app, this would come from the session data
+      const hostStudentId = session.hostName.toLowerCase().replace(/\s+/g, "") + "123" // Mock ID
+      if (user) {
+        sendJoinRequestNotification(
+          hostStudentId, // Host student ID
+          user.studentId,
+          user.name,
+          session.title,
+          session.id,
+        )
+      }
+      
+      toast.success("Join request sent!", {
+        description: `Your request to join "${session.title}" has been sent to the host`,
+      })
       return nextRequested
     })
   }
 
   const updateRequestStatus = (id: string, status: "accepted" | "rejected") => {
-    setRequests((prev) =>
-      prev.map((req) => (req.id === id ? { ...req, status } : req)),
-    )
+    setRequests((prev) => {
+      const request = prev.find((req) => req.id === id)
+      const updated = prev.map((req) => (req.id === id ? { ...req, status } : req))
+      
+      // Send notification to requester
+      if (request && user) {
+        // Extract requester student ID from request (mock - in real app this would be in the request)
+        const requesterStudentId = request.requesterName.toLowerCase().replace(/\s+/g, "") + "123"
+        sendRequestResponseNotification(
+          requesterStudentId,
+          request.sessionTitle,
+          status === "accepted",
+        )
+      }
+      
+      if (status === "accepted") {
+        toast.success("Request accepted", {
+          description: `${request?.requesterName} has been added to the session`,
+        })
+      } else {
+        toast.info("Request rejected", {
+          description: `You've rejected ${request?.requesterName}'s join request`,
+        })
+      }
+      
+      return updated
+    })
   }
 
   return (
@@ -709,266 +910,664 @@ const StudySessionPage = () => {
       )}
 
       {section === "create" && (
-        <div className="mt-4 grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-6">
-          <div className="space-y-5">
-            {sessionQuestionPresets.map((q: SessionQuestion) => (
-              <Card key={q.id} className="border border-gray-200 rounded-xl shadow-sm">
-                <CardContent className="p-4 space-y-3">
-                  <div>
-                    <div className="text-sm font-semibold text-[#141414]">{q.label}</div>
-                    {q.helperText && (
-                      <p className="text-xs text-gray-500 mt-1">{q.helperText}</p>
-                    )}
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {q.options.map((opt) => {
-                      const selected = questionAnswers[q.id] === opt.id
-                      return (
-                        <button
-                          key={opt.id}
-                          type="button"
-                          onClick={() =>
-                            setQuestionAnswers((prev) => ({ ...prev, [q.id]: opt.id }))
-                          }
-                          className={cn(
-                            "px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors",
-                            selected
-                              ? "border-[#036aff] bg-[#036aff]/5 text-[#036aff]"
-                              : "border-gray-200 text-gray-700 hover:border-[#036aff]/60"
-                          )}
-                        >
-                          {opt.label}
-                        </button>
-                      )
-                    })}
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-
-          <div className="space-y-4">
-            <Card className="border border-gray-200 rounded-xl shadow-sm">
-              <CardContent className="p-4 space-y-3">
-                <div className="text-sm font-semibold text-[#141414]">Visibility</div>
-                <div className="space-y-2">
-                  <button
-                    type="button"
-                    onClick={() => setVisibility("public")}
-                    className={cn(
-                      "w-full flex items-center justify-between rounded-md border px-3 py-2 text-xs",
-                      visibility === "public"
-                        ? "border-[#036aff] bg-[#036aff]/5"
-                        : "border-gray-200"
-                    )}
-                  >
-                    <span className="flex items-center gap-2 text-gray-700">
-                      <Globe2 className="h-4 w-4" />
-                      Public session
-                    </span>
-                    {visibility === "public" && <Check className="h-4 w-4 text-[#036aff]" />}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setVisibility("private-invite")}
-                    className={cn(
-                      "w-full flex items-center justify-between rounded-md border px-3 py-2 text-xs",
-                      visibility === "private-invite"
-                        ? "border-[#036aff] bg-[#036aff]/5"
-                        : "border-gray-200"
-                    )}
-                  >
-                    <span className="flex items-center gap-2 text-gray-700">
-                      <UserPlus2 className="h-4 w-4" />
-                      Private – invite only
-                    </span>
-                    {visibility === "private-invite" && (
-                      <Check className="h-4 w-4 text-[#036aff]" />
-                    )}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setVisibility("private-password")}
-                    className={cn(
-                      "w-full flex items-center justify-between rounded-md border px-3 py-2 text-xs",
-                      visibility === "private-password"
-                        ? "border-[#036aff] bg-[#036aff]/5"
-                        : "border-gray-200"
-                    )}
-                  >
-                    <span className="flex items-center gap-2 text-gray-700">
-                      <KeyRound className="h-4 w-4" />
-                      Private – password
-                    </span>
-                    {visibility === "private-password" && (
-                      <Check className="h-4 w-4 text-[#036aff]" />
-                    )}
-                  </button>
-                </div>
-
-                {visibility === "private-password" && (
-                  <div className="pt-2 space-y-1">
-                    <span className="text-xs text-gray-500">Session password</span>
-                    <input
-                      type="password"
-                      value={sessionPassword}
-                      onChange={(e) => setSessionPassword(e.target.value)}
-                      placeholder="Create a short password"
-                      className="h-8 rounded-md border border-gray-200 px-2 text-xs outline-none focus:ring-2 focus:ring-[#036aff]/30"
-                    />
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-            
-            {createStep === "questions" && (
+        <div className="mt-4 max-w-4xl">
+          {createStep === "details" && (
               <Card className="border border-gray-200 rounded-xl shadow-sm">
-                <CardContent className="p-4 space-y-3">
-                  <div className="text-sm font-semibold text-[#141414]">
-                    Quick summary
-                  </div>
-                  <p className="text-xs text-gray-600">
-                    We’ll use these answers to pre-fill your study session details.
-                    You can still adjust the title, time and location on the next step.
-                  </p>
-                  <Button
-                    className="w-full bg-[#036aff] text-white font-bold hover:bg-[#036aff]/90 text-sm py-2"
-                    onClick={() => setCreateStep("details")}
-                  >
-                    Continue to details
-                  </Button>
-                </CardContent>
-              </Card>
-            )}
-
-            {createStep === "details" && (
-              <Card className="border border-gray-200 rounded-xl shadow-sm">
-                <CardContent className="p-4 space-y-4">
+                <CardContent className="p-6 space-y-6">
                   <div className="flex items-center justify-between">
-                    <div className="text-sm font-semibold text-[#141414]">
-                      Session details
+                    <div>
+                      <h2 className="text-lg font-bold text-[#141414]">Create Study Room</h2>
+                      <p className="text-xs text-gray-500 mt-1">Create a Google Meet room for your study session</p>
                     </div>
-                    <span className="text-[11px] text-gray-500">Step 2 of 2</span>
-                  </div>
-
-                  <div className="space-y-3">
-                    <div className="space-y-1">
-                      <label className="text-xs text-gray-500">Title</label>
-                      <input
-                        type="text"
-                        value={sessionTitle}
-                        onChange={(e) => setSessionTitle(e.target.value)}
-                        placeholder="e.g. Exam review: Intro to AI – Chapter 3"
-                        className="h-8 w-full rounded-md border border-gray-200 px-2 text-xs outline-none focus:ring-2 focus:ring-[#036aff]/30"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-xs text-gray-500">Course</label>
-                      <input
-                        type="text"
-                        value={sessionCourse}
-                        onChange={(e) => setSessionCourse(e.target.value)}
-                        placeholder="e.g. Introduction to AI"
-                        className="h-8 w-full rounded-md border border-gray-200 px-2 text-xs outline-none focus:ring-2 focus:ring-[#036aff]/30"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-xs text-gray-500">Time</label>
-                      <input
-                        type="text"
-                        value={sessionTime}
-                        onChange={(e) => setSessionTime(e.target.value)}
-                        placeholder="e.g. Today • 7:30 PM – 9:00 PM"
-                        className="h-8 w-full rounded-md border border-gray-200 px-2 text-xs outline-none focus:ring-2 focus:ring-[#036aff]/30"
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-xs text-gray-500">Location</label>
-                      <input
-                        type="text"
-                        value={sessionLocation}
-                        onChange={(e) => setSessionLocation(e.target.value)}
-                        placeholder="e.g. Library A302 or Online"
-                        className="h-8 w-full rounded-md border border-gray-200 px-2 text-xs outline-none focus:ring-2 focus:ring-[#036aff]/30"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between pt-1">
                     <Button
                       variant="ghost"
-                      className="text-xs font-bold text-[#141414] hover:bg-[#f5f5f5] px-2"
-                      onClick={() => setCreateStep("questions")}
+                      size="sm"
+                      onClick={initializeRoomLinks}
+                      className="text-xs"
                     >
-                      Back
+                      <RefreshCw className="h-3 w-3 mr-1" />
+                      Generate Links
+                    </Button>
+                  </div>
+
+                  <div className="space-y-6">
+                    {/* Study Topic */}
+                    <div className="space-y-2">
+                      <label className="text-xs font-semibold text-gray-700">Study Topic *</label>
+                      <input
+                        type="text"
+                        value={studyTopic}
+                        onChange={(e) => setStudyTopic(e.target.value)}
+                        placeholder="e.g. Midterm revision"
+                        className="h-9 w-full rounded-md border border-gray-200 px-3 text-sm outline-none focus:ring-2 focus:ring-[#036aff]/30"
+                      />
+                    </div>
+
+                    {/* Faculty Selection */}
+                    <div className="space-y-2">
+                      <label className="text-xs font-semibold text-gray-700">Faculty (Filter Options)</label>
+                      <p className="text-[11px] text-gray-500">Select one or more faculties. Auto-filled based on your courses.</p>
+                      <div className="flex flex-wrap gap-2">
+                        {discoveryFilters.faculties.map((faculty) => {
+                          const isSelected = selectedFaculties.includes(faculty) || (faculty === "All faculties" && selectedFaculties.length === 0)
+                          return (
+                            <button
+                              key={faculty}
+                              type="button"
+                              onClick={() => toggleFaculty(faculty)}
+                              className={cn(
+                                "px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors",
+                                isSelected
+                                  ? "border-[#036aff] bg-[#036aff]/5 text-[#036aff]"
+                                  : "border-gray-200 text-gray-700 hover:border-[#036aff]/60"
+                              )}
+                            >
+                              {faculty}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Date & Time */}
+                    <div className="space-y-3 pt-2 border-t border-gray-200">
+                      <div className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Date & Time</div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <label className="text-xs text-gray-500 flex items-center gap-1">
+                            <Calendar className="h-3 w-3" />
+                            Start Date *
+                          </label>
+                          <input
+                            type="date"
+                            value={sessionDate}
+                            onChange={(e) => setSessionDate(e.target.value)}
+                            min={new Date().toISOString().split("T")[0]}
+                            className="h-9 w-full rounded-md border border-gray-200 px-3 text-xs outline-none focus:ring-2 focus:ring-[#036aff]/30"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-xs text-gray-500 flex items-center gap-1">
+                            <Clock className="h-3 w-3" />
+                            Start Time *
+                          </label>
+                          <input
+                            type="time"
+                            value={sessionStartTime}
+                            onChange={(e) => setSessionStartTime(e.target.value)}
+                            className="h-9 w-full rounded-md border border-gray-200 px-3 text-xs outline-none focus:ring-2 focus:ring-[#036aff]/30"
+                          />
+                        </div>
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-xs text-gray-500">Duration</label>
+                        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                          {[
+                            { value: "30", label: "30 min" },
+                            { value: "60", label: "1 hour" },
+                            { value: "90", label: "1.5 hours" },
+                            { value: "120", label: "2 hours" },
+                            { value: "custom", label: "Custom" },
+                          ].map((option) => (
+                            <button
+                              key={option.value}
+                              type="button"
+                              onClick={() => setSessionDuration(option.value as any)}
+                              className={cn(
+                                "px-3 py-2 rounded-md text-xs font-semibold border transition-colors",
+                                sessionDuration === option.value
+                                  ? "border-[#036aff] bg-[#036aff]/5 text-[#036aff]"
+                                  : "border-gray-200 text-gray-700 hover:border-[#036aff]/60"
+                              )}
+                            >
+                              {option.label}
+                            </button>
+                          ))}
+                        </div>
+                        {sessionDuration === "custom" && (
+                          <input
+                            type="number"
+                            value={customDuration}
+                            onChange={(e) => setCustomDuration(e.target.value)}
+                            placeholder="Minutes"
+                            min="15"
+                            step="15"
+                            className="h-9 w-full rounded-md border border-gray-200 px-3 text-xs outline-none focus:ring-2 focus:ring-[#036aff]/30"
+                          />
+                        )}
+                        {sessionStartTime && sessionDuration && (
+                          <div className="rounded-lg bg-[#f5f5f5] px-3 py-2 text-xs">
+                            <p><span className="font-semibold">Start:</span> {formatTimeDisplay(sessionStartTime)}</p>
+                            <p><span className="font-semibold">End:</span> {formatTimeDisplay(calculateEndTime())}</p>
+                            <p><span className="font-semibold">Duration:</span> {
+                              sessionDuration === "custom" ? `${customDuration || 0} min` :
+                              sessionDuration === "30" ? "30 min" :
+                              sessionDuration === "60" ? "1 hour" :
+                              sessionDuration === "90" ? "1.5 hours" : "2 hours"
+                            }</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Room Configuration */}
+                    <div className="space-y-4 pt-2 border-t border-gray-200">
+                      <div className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Room Configuration</div>
+                      
+                      {/* Participant Limit */}
+                      <div className="space-y-2">
+                        <label className="text-xs text-gray-500 flex items-center gap-1">
+                          <Users className="h-3 w-3" />
+                          Participant Limit
+                        </label>
+                        <input
+                          type="number"
+                          value={participantLimit}
+                          onChange={(e) => setParticipantLimit(e.target.value)}
+                          placeholder="e.g. 10 (leave empty for unlimited)"
+                          min="1"
+                          className="h-9 w-full rounded-md border border-gray-200 px-3 text-xs outline-none focus:ring-2 focus:ring-[#036aff]/30"
+                        />
+                      </div>
+
+                      {/* Room Type & Privacy */}
+                      <div className="space-y-2">
+                        <label className="text-xs text-gray-500">Room Type</label>
+                        <div className="space-y-2">
+                          <button
+                            type="button"
+                            onClick={() => setVisibility("public")}
+                            className={cn(
+                              "w-full flex items-center justify-between rounded-md border px-3 py-2 text-xs",
+                              visibility === "public"
+                                ? "border-[#036aff] bg-[#036aff]/5"
+                                : "border-gray-200"
+                            )}
+                          >
+                            <span className="flex items-center gap-2 text-gray-700">
+                              <Globe2 className="h-4 w-4" />
+                              Public Room - Open link for everyone
+                            </span>
+                            {visibility === "public" && <Check className="h-4 w-4 text-[#036aff]" />}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setVisibility("private-password")}
+                            className={cn(
+                              "w-full flex items-center justify-between rounded-md border px-3 py-2 text-xs",
+                              visibility === "private-password"
+                                ? "border-[#036aff] bg-[#036aff]/5"
+                                : "border-gray-200"
+                            )}
+                          >
+                            <span className="flex items-center gap-2 text-gray-700">
+                              <Lock className="h-4 w-4" />
+                              Private Room - Require password
+                            </span>
+                            {visibility === "private-password" && <Check className="h-4 w-4 text-[#036aff]" />}
+                          </button>
+                        </div>
+                        {visibility === "private-password" && (
+                          <div className="space-y-2 pl-7">
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="checkbox"
+                                checked={useSystemPassword}
+                                onChange={(e) => {
+                                  setUseSystemPassword(e.target.checked)
+                                  if (e.target.checked) {
+                                    setSessionPassword(generateSystemPassword())
+                                  } else {
+                                    setSessionPassword("")
+                                  }
+                                }}
+                                className="rounded border-gray-300"
+                              />
+                              <label className="text-xs text-gray-600">Use system-generated password</label>
+                            </div>
+                            {!useSystemPassword && (
+                              <input
+                                type="text"
+                                value={sessionPassword}
+                                onChange={(e) => setSessionPassword(e.target.value)}
+                                placeholder="Create your own password"
+                                className="h-8 w-full rounded-md border border-gray-200 px-2 text-xs outline-none focus:ring-2 focus:ring-[#036aff]/30"
+                              />
+                            )}
+                            {useSystemPassword && sessionPassword && (
+                              <div className="flex items-center gap-2 rounded-md border border-gray-200 bg-[#f5f5f5] px-2 py-1.5">
+                                <span className="text-xs font-mono text-[#141414] flex-1">{sessionPassword}</span>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => setSessionPassword(generateSystemPassword())}
+                                  className="h-6 px-2 text-xs"
+                                >
+                                  <RefreshCw className="h-3 w-3" />
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(sessionPassword)
+                                    toast.success("Password copied!")
+                                  }}
+                                  className="h-6 px-2 text-xs"
+                                >
+                                  <Copy className="h-3 w-3" />
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Google Meet Link */}
+                      <div className="space-y-2">
+                        <label className="text-xs text-gray-500 flex items-center gap-1">
+                          <Video className="h-3 w-3" />
+                          Google Meet Link
+                        </label>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            value={googleMeetLink}
+                            onChange={(e) => setGoogleMeetLink(e.target.value)}
+                            placeholder="Will be generated automatically"
+                            className="h-9 flex-1 rounded-md border border-gray-200 px-3 text-xs outline-none focus:ring-2 focus:ring-[#036aff]/30"
+                          />
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setGoogleMeetLink(generateGoogleMeetLink())
+                              toast.success("Google Meet link generated!")
+                            }}
+                            className="text-xs"
+                          >
+                            Generate
+                          </Button>
+                        </div>
+                      </div>
+
+                      {/* Unique Room Link */}
+                      <div className="space-y-2">
+                        <label className="text-xs text-gray-500 flex items-center gap-1">
+                          <LinkIcon className="h-3 w-3" />
+                          Unique Room Link (Shareable)
+                        </label>
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            value={roomLink}
+                            onChange={(e) => setRoomLink(e.target.value)}
+                            placeholder="Will be generated automatically"
+                            className="h-9 flex-1 rounded-md border border-gray-200 px-3 text-xs outline-none focus:ring-2 focus:ring-[#036aff]/30"
+                          />
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setRoomLink(generateRoomLink())
+                              toast.success("Room link generated!")
+                            }}
+                            className="text-xs"
+                          >
+                            Generate
+                          </Button>
+                          {roomLink && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                navigator.clipboard.writeText(roomLink)
+                                toast.success("Room link copied!")
+                              }}
+                              className="text-xs"
+                            >
+                              <Copy className="h-3 w-3" />
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Student Invitation */}
+                    <div className="space-y-2 pt-2 border-t border-gray-200">
+                      <label className="text-xs font-semibold text-gray-700">Student Invitation</label>
+                      <p className="text-[11px] text-gray-500">Enter student IDs to invite them. Notifications will be sent to invited students.</p>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={currentStudentId}
+                          onChange={(e) => setCurrentStudentId(e.target.value)}
+                          onKeyPress={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault()
+                              addInvitedStudent()
+                            }
+                          }}
+                          placeholder="Enter student ID (e.g. 523k0002)"
+                          className="h-9 flex-1 rounded-md border border-gray-200 px-3 text-xs outline-none focus:ring-2 focus:ring-[#036aff]/30"
+                        />
+                        <Button
+                          type="button"
+                          onClick={addInvitedStudent}
+                          className="bg-[#036aff] text-white font-bold hover:bg-[#036aff]/90 text-xs px-4"
+                        >
+                          Add
+                        </Button>
+                      </div>
+                      {invitedStudentIds.length > 0 && (
+                        <div className="flex flex-wrap gap-2 mt-2">
+                          {invitedStudentIds.map((id) => (
+                            <Badge
+                              key={id}
+                              variant="outline"
+                              className="border-gray-200 text-xs font-medium pr-1"
+                            >
+                              {id}
+                              <button
+                                type="button"
+                                onClick={() => removeInvitedStudent(id)}
+                                className="ml-1 hover:text-red-600"
+                              >
+                                <X className="h-3 w-3" />
+                              </button>
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-200">
+                    <Button
+                      variant="ghost"
+                      className="text-xs font-bold text-[#141414] hover:bg-[#f5f5f5]"
+                      onClick={() => setSection("schedule")}
+                    >
+                      Cancel
                     </Button>
                     <Button
-                      className="bg-[#036aff] text-white font-bold hover:bg-[#036aff]/90 text-sm py-2 px-4"
+                      className="bg-[#036aff] text-white font-bold hover:bg-[#036aff]/90 text-sm py-2 px-6"
                       onClick={() => {
-                        setCreatedLink(
-                          "https://unicircle.app/study/" +
-                            (sessionTitle || "my-session").toLowerCase().replace(/\s+/g, "-"),
-                        )
+                        // Validation
+                        if (!studyTopic.trim()) {
+                          toast.error("Study topic required", {
+                            description: "Please provide a study topic",
+                          })
+                          return
+                        }
+                        if (!sessionDate) {
+                          toast.error("Date required", {
+                            description: "Please select a date",
+                          })
+                          return
+                        }
+                        if (!sessionStartTime) {
+                          toast.error("Start time required", {
+                            description: "Please select a start time",
+                          })
+                          return
+                        }
+                        if (sessionDuration === "custom" && (!customDuration || parseInt(customDuration) < 15)) {
+                          toast.error("Invalid duration", {
+                            description: "Please enter a valid duration (minimum 15 minutes)",
+                          })
+                          return
+                        }
+                        if (!googleMeetLink) {
+                          setGoogleMeetLink(generateGoogleMeetLink())
+                        }
+                        if (!roomLink) {
+                          setRoomLink(generateRoomLink())
+                        }
+                        if (visibility === "private-password" && !sessionPassword) {
+                          setSessionPassword(generateSystemPassword())
+                        }
+
+                        const finalRoomLink = roomLink || generateRoomLink()
+                        setCreatedLink(finalRoomLink)
+                        
+                        // Send notifications to all invited students when room is created
+                        if (user && invitedStudentIds.length > 0) {
+                          invitedStudentIds.forEach((studentId) => {
+                            sendInvitationNotification(
+                              studentId,
+                              user.studentId,
+                              user.name,
+                              studyTopic,
+                              `session-${Date.now()}`,
+                              finalRoomLink,
+                            )
+                          })
+                        }
+                        
                         setCreateStep("done")
+                        toast.success("Study room created!", {
+                          description: `"${studyTopic}" is now live. Notifications sent to ${invitedStudentIds.length} student(s).`,
+                        })
                       }}
                     >
-                      Create session
+                      Create Room
                     </Button>
                   </div>
                 </CardContent>
               </Card>
             )}
 
-            {createStep === "done" && (
+          {createStep === "done" && (
               <Card className="border border-gray-200 rounded-xl shadow-sm">
-                <CardContent className="p-4 space-y-3">
-                  <div className="flex items-center gap-2">
-                    <div className="flex h-7 w-7 items-center justify-center rounded-full bg-[#036aff]/10">
-                      <Check className="h-4 w-4 text-[#036aff]" />
+                <CardContent className="p-6 space-y-6">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-green-100">
+                      <Check className="h-5 w-5 text-green-600" />
                     </div>
                     <div>
-                      <div className="text-sm font-semibold text-[#141414]">
-                        Session created
-                      </div>
-                      <p className="text-xs text-gray-500">
-                        Share this link with friends or post it to your class group.
-                      </p>
+                      <h2 className="text-lg font-bold text-[#141414]">Study Room Created!</h2>
+                      <p className="text-xs text-gray-500">Your room is ready. Share the link with participants.</p>
                     </div>
                   </div>
 
-                  {createdLink && (
-                    <div className="flex items-center gap-2 rounded-md border border-gray-200 bg-[#f5f5f5] px-3 py-2">
-                      <span className="flex-1 truncate text-xs text-[#141414]">
-                        {createdLink}
-                      </span>
-                      <Button
-                        variant="ghost"
-                        className="text-xs font-bold text-[#141414] hover:bg-white px-2"
-                      >
-                        Copy
-                      </Button>
+                  {/* Study Session View */}
+                  <div className="space-y-4 pt-2 border-t border-gray-200">
+                    <div className="text-xs font-semibold text-gray-700 uppercase tracking-wide mb-3">
+                      Study Session View
                     </div>
-                  )}
 
-                  <div className="flex gap-2 pt-1">
+                    {/* Basic Info */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                        <p className="text-xs text-gray-500">Study Topic</p>
+                        <p className="text-sm font-semibold text-[#141414]">{studyTopic}</p>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-xs text-gray-500">Date</p>
+                        <p className="text-sm font-semibold text-[#141414]">{formatDateDisplay(sessionDate)}</p>
+                      </div>
+                    </div>
+
+                    {/* Time Information */}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 rounded-lg bg-[#f5f5f5] p-4">
+                      <div>
+                        <p className="text-xs text-gray-500 mb-1">Start Time</p>
+                        <p className="text-sm font-semibold text-[#141414]">
+                          {sessionStartTime ? formatTimeDisplay(sessionStartTime) : "-"}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500 mb-1">End Time</p>
+                        <p className="text-sm font-semibold text-[#141414]">
+                          {sessionStartTime ? formatTimeDisplay(calculateEndTime()) : "-"}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-gray-500 mb-1">Duration</p>
+                        <p className="text-sm font-semibold text-[#141414]">
+                          {sessionDuration === "custom"
+                            ? `${customDuration || 0} minutes`
+                            : sessionDuration === "30"
+                            ? "30 minutes"
+                            : sessionDuration === "60"
+                            ? "1 hour"
+                            : sessionDuration === "90"
+                            ? "1.5 hours"
+                            : "2 hours"}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Participants */}
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs text-gray-500">Participants</p>
+                        <p className="text-xs font-semibold text-[#141414]">
+                          {invitedStudentIds.length} invited
+                          {participantLimit && ` / ${participantLimit} max`}
+                        </p>
+                      </div>
+                      {invitedStudentIds.length > 0 && (
+                        <div className="flex flex-wrap gap-2">
+                          {invitedStudentIds.map((id) => (
+                            <Badge key={id} variant="outline" className="border-gray-200 text-xs">
+                              {id}
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Room Configurations */}
+                    <div className="space-y-3 pt-2 border-t border-gray-200">
+                      <p className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Room Configurations</p>
+                      <div className="space-y-2 text-xs">
+                        <div className="flex items-center justify-between">
+                          <span className="text-gray-600">Room Type:</span>
+                          <span className="font-semibold text-[#141414]">
+                            {visibility === "public" ? "Public" : "Private (Password Protected)"}
+                          </span>
+                        </div>
+                        {visibility === "private-password" && sessionPassword && (
+                          <div className="flex items-center justify-between">
+                            <span className="text-gray-600">Password:</span>
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono font-semibold text-[#141414]">{sessionPassword}</span>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => {
+                                  navigator.clipboard.writeText(sessionPassword)
+                                  toast.success("Password copied!")
+                                }}
+                                className="h-6 px-2"
+                              >
+                                <Copy className="h-3 w-3" />
+                              </Button>
+                            </div>
+                          </div>
+                        )}
+                        <div className="flex items-center justify-between">
+                          <span className="text-gray-600">Participant Limit:</span>
+                          <span className="font-semibold text-[#141414]">
+                            {participantLimit || "Unlimited"}
+                          </span>
+                        </div>
+                        {selectedFaculties.length > 0 && (
+                          <div className="flex items-start justify-between">
+                            <span className="text-gray-600">Faculties:</span>
+                            <div className="flex flex-wrap gap-1 justify-end">
+                              {selectedFaculties.map((f) => (
+                                <Badge key={f} variant="outline" className="border-gray-200 text-[10px]">
+                                  {f}
+                                </Badge>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Links */}
+                    <div className="space-y-3 pt-2 border-t border-gray-200">
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <label className="text-xs font-semibold text-gray-700 flex items-center gap-1">
+                            <Video className="h-3 w-3" />
+                            Google Meet Link
+                          </label>
+                          {googleMeetLink && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                navigator.clipboard.writeText(googleMeetLink)
+                                toast.success("Google Meet link copied!")
+                              }}
+                              className="h-6 px-2 text-xs"
+                            >
+                              <Copy className="h-3 w-3 mr-1" />
+                              Copy
+                            </Button>
+                          )}
+                        </div>
+                        {googleMeetLink && (
+                          <div className="rounded-md border border-gray-200 bg-[#f5f5f5] px-3 py-2">
+                            <p className="text-xs text-[#141414] break-all">{googleMeetLink}</p>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <label className="text-xs font-semibold text-gray-700 flex items-center gap-1">
+                            <LinkIcon className="h-3 w-3" />
+                            Unique Room Link (Shareable)
+                          </label>
+                          {createdLink && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                navigator.clipboard.writeText(createdLink || "")
+                                toast.success("Room link copied!", {
+                                  description: "Session link has been copied to clipboard",
+                                })
+                              }}
+                              className="h-6 px-2 text-xs"
+                            >
+                              <Copy className="h-3 w-3 mr-1" />
+                              Copy
+                            </Button>
+                          )}
+                        </div>
+                        {createdLink && (
+                          <div className="rounded-md border border-gray-200 bg-[#f5f5f5] px-3 py-2">
+                            <p className="text-xs text-[#141414] break-all">{createdLink}</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-3 pt-4 border-t border-gray-200">
                     <Button
                       variant="outline"
                       className="flex-1 border-gray-200 text-xs font-bold text-[#141414] py-2"
                       onClick={() => setCreateStep("details")}
                     >
-                      Edit details
+                      Edit Details
                     </Button>
                     <Button
                       className="flex-1 bg-[#036aff] text-white font-bold hover:bg-[#036aff]/90 text-xs py-2"
                       onClick={() => setSection("schedule")}
                     >
-                      View in schedule
+                      View in Schedule
                     </Button>
                   </div>
                 </CardContent>
               </Card>
             )}
-          </div>
         </div>
       )}
 

@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom"
-import { Home, BookOpen, BarChart3, FolderOpen, ListChecks } from "lucide-react"
+import { BookOpen, FolderOpen, ListChecks } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
@@ -11,8 +11,7 @@ interface SidebarProps {
 const menuItems = [
   { id: "home", label: "Student Feed", icon: ListChecks, path: "/" },
   { id: "study-sessions", label: "Study Sessions", icon: BookOpen, path: "/study-sessions" },
-  { id: "material-repo", label: "Material Repository", icon: FolderOpen, path: "/material-repo" },
-  { id: "resources", label: "Resources", icon: BarChart3, path: "/resources" },
+  { id: "resource", label: "Resource", icon: FolderOpen, path: "/resource" },
 ]
 
 export function Sidebar({ activeItem = "home", collapsed = false }: SidebarProps) {

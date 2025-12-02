@@ -13,8 +13,7 @@ export function Layout() {
     if (path === "/" || path === "/home") return "home"
     if (path === "/feed") return "feed"
     if (path === "/study-sessions") return "study-sessions"
-    if (path === "/material-repo") return "material-repo"
-    if (path === "/resources") return "resources"
+    if (path === "/resource") return "resource"
     return "home"
   }
 

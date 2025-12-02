@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
+import { toast } from "sonner"
 import {
   Dialog,
   DialogContent,
@@ -15,7 +16,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 
-const MaterialRepository = () => {
+const ResourcePage = () => {
   const [resources, setResources] = useState(resourceItems)
   const [searchTerm, setSearchTerm] = useState("")
   const [selectedCourse, setSelectedCourse] = useState("")
@@ -43,17 +44,36 @@ const MaterialRepository = () => {
   }, [resources, searchTerm, selectedCourse, selectedTag])
 
   const handleVote = (resourceId: string) => {
+    const resource = resources.find((r) => r.id === resourceId)
     setResources((prev) =>
       prev.map((resource) =>
         resource.id === resourceId ? { ...resource, votes: resource.votes + 1 } : resource,
       ),
     )
+    toast.success("Upvoted!", {
+      description: `You upvoted "${resource?.title}"`,
+    })
   }
 
   const handleMockUpload = () => {
-    if (!uploadTitle) return
-    if (resourceType === "url" && !uploadUrl) return
-    if (resourceType === "document" && !uploadFile) return
+    if (!uploadTitle) {
+      toast.error("Title required", {
+        description: "Please provide a title for your resource",
+      })
+      return
+    }
+    if (resourceType === "url" && !uploadUrl) {
+      toast.error("URL required", {
+        description: "Please provide a URL for your resource",
+      })
+      return
+    }
+    if (resourceType === "document" && !uploadFile) {
+      toast.error("File required", {
+        description: "Please select a file to upload",
+      })
+      return
+    }
 
     const matchedCourse = resourceCourses.find((course) => course.code === uploadCourse)
     const newResource: ResourceItem = {
@@ -79,6 +99,9 @@ const MaterialRepository = () => {
     setUploadFile(null)
     setResourceType("url")
     setIsUploadOpen(false)
+    toast.success("Resource uploaded!", {
+      description: `"${uploadTitle}" has been shared with your classmates`,
+    })
   }
 
   return (
@@ -267,4 +290,5 @@ const MaterialRepository = () => {
   )
 }
 
-export default MaterialRepository
+export default ResourcePage
+

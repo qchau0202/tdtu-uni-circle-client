@@ -13,14 +13,76 @@ export interface ProfileActivity {
   date: string
 }
 
-export const profileInfo = {
+export interface SocialLink {
+  platform: "facebook" | "instagram" | "linkedin" | "github" | "unicircle"
+  url: string
+  label: string
+}
+
+export interface ProfileInfo {
+  username: string
+  studentId: string
+  name: string
+  dateOfBirth: string // Format: YYYY-MM-DD
+  academicYear: string // Format: YYYY-YYYY (e.g., "2023-2024")
+  phoneNumber: string
+  email: string
+  avatar?: string
+  initials: string
+  major: string
+  bio: string
+  focusAreas: string[]
+  socialLinks: SocialLink[]
+  privacy: {
+    phoneVisible: boolean // Default: false (hidden)
+    emailVisible: boolean // Default: false (hidden)
+  }
+}
+
+// Helper function to convert academic year (YYYY-YYYY) to Kxx format
+export const academicYearToKxx = (academicYear: string): string => {
+  const [startYear] = academicYear.split("-")
+  const year = parseInt(startYear)
+  // Kxx format: K + last 2 digits of start year
+  // For 2023 -> K23, 2024 -> K24, etc.
+  const lastTwoDigits = year % 100
+  return `K${lastTwoDigits.toString().padStart(2, "0")}`
+}
+
+export const profileInfo: ProfileInfo = {
+  username: "quocchau_dev",
+  studentId: "523k0002",
   name: "Quoc Chau",
-  initials: "QC",
+  dateOfBirth: "2005-03-15",
+  academicYear: "2023-2024",
+  phoneNumber: "+84 123 456 789",
   email: "523k0002@student.tdtu.edu.vn",
+  avatar: undefined,
+  initials: "QC",
   major: "Software Engineering",
-  year: "K27",
   bio: "Enjoys building study tools, leading peer sessions for AI and Data Structures, and collecting high‑quality notes.",
   focusAreas: ["AI fundamentals", "Data Structures", "Software Engineering"],
+  socialLinks: [
+    {
+      platform: "facebook",
+      url: "https://facebook.com/quocchau",
+      label: "Facebook",
+    },
+    {
+      platform: "instagram",
+      url: "https://instagram.com/quocchau",
+      label: "Instagram",
+    },
+    {
+      platform: "unicircle",
+      url: "/profile",
+      label: "UniCircle Profile",
+    },
+  ],
+  privacy: {
+    phoneVisible: false, // Hidden by default
+    emailVisible: false, // Hidden by default
+  },
 }
 
 export const profileStats: ProfileStat[] = [

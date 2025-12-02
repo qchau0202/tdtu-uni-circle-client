@@ -4,6 +4,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
+import { toast } from "sonner"
 import type { FeedPost } from "@/data/feed"
 import {
   Dialog,
@@ -109,7 +110,13 @@ export function FeedPostCard({ post }: FeedPostCardProps) {
             <div className="flex items-center gap-1">
               <button
                 type="button"
-                onClick={() => setLiked((prev) => !prev)}
+                onClick={() => {
+                  const newLiked = !liked
+                  setLiked(newLiked)
+                  toast.success(newLiked ? "Post liked!" : "Post unliked", {
+                    description: newLiked ? "You liked this post" : "You removed your like",
+                  })
+                }}
                 className={cn(
                   "inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold hover:bg-[#f5f5f5]",
                   liked ? "text-red-500" : "text-[#141414]",

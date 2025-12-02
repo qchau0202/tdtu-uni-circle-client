@@ -4,11 +4,26 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { cn } from "@/lib/utils"
+import { toast } from "sonner"
 
 type ComposerPrivacy = "public" | "friends"
 
 export function FeedComposer() {
   const [privacy, setPrivacy] = useState<ComposerPrivacy>("friends")
+  const [content, setContent] = useState("")
+
+  const handlePost = () => {
+    if (!content.trim()) {
+      toast.error("Post cannot be empty", {
+        description: "Please write something before posting",
+      })
+      return
+    }
+    toast.success("Post published!", {
+      description: `Your post has been shared ${privacy === "public" ? "publicly" : "with friends"}`,
+    })
+    setContent("")
+  }
 
   return (
     <Card className="border border-gray-200 rounded-xl shadow-sm">
@@ -22,6 +37,8 @@ export function FeedComposer() {
           <div className="flex-1 space-y-3">
             <textarea
               rows={2}
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
               className="w-full resize-none rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#036aff]/20"
               placeholder="Share what you learned or a study moment from an event you attended..."
             />
@@ -73,7 +90,10 @@ export function FeedComposer() {
                     Friends only
                   </button>
                 </div>
-                <Button className="bg-[#036aff] text-white font-bold hover:bg-[#036aff]/90 text-xs px-4 py-2">
+                <Button
+                  onClick={handlePost}
+                  className="bg-[#036aff] text-white font-bold hover:bg-[#036aff]/90 text-xs px-4 py-2"
+                >
                   Post
                 </Button>
               </div>
