@@ -12,7 +12,7 @@ export function Layout() {
     const path = location.pathname
     if (path === "/" || path === "/home") return "home"
     if (path === "/feed") return "feed"
-    if (path === "/study-sessions") return "study-sessions"
+    if (path === "/collections") return "collections"
     if (path === "/resource") return "resource"
     return "home"
   }

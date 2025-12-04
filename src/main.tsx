@@ -5,6 +5,8 @@ import { Toaster } from '@/components/ui/sonner'
 import { AuthProvider } from './contexts/AuthContext'
 import './index.css'
 import App from './App.tsx'
+// Auto-generate test data in development mode
+import './scripts/initTestData'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

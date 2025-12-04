@@ -20,79 +20,59 @@ export function ResourceFilters({
   onTagChange,
 }: ResourceFiltersProps) {
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
+      <div className="flex flex-col gap-4 md:flex-row">
+        <div className="space-y-2 md:flex-1">
+          <div className="text-sm font-semibold text-gray-500 uppercase tracking-wide">
+            Course
+          </div>
+          <div className="relative">
+            <select
+              value={selectedCourse}
+              onChange={(e) => onCourseChange(e.target.value)}
+              className={cn(
+                "w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm font-medium",
+                "focus:outline-none focus:ring-2 focus:ring-[#036aff]/20",
+              )}
+            >
+              <option value="">All courses</option>
+              {resourceCourses.map((course) => (
+                <option key={course.code} value={course.code}>
+                  {course.code} · {course.name}
+                </option>
+          ))}
+            </select>
+        </div>
+      </div>
+
+        <div className="space-y-2 md:flex-1">
+          <div className="text-sm font-semibold text-gray-500 uppercase tracking-wide">Tags</div>
+          <div className="relative">
+            <select
+              value={selectedTag}
+              onChange={(e) => onTagChange(e.target.value)}
+              className={cn(
+                "w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm font-medium capitalize",
+                "focus:outline-none focus:ring-2 focus:ring-[#036aff]/20",
+              )}
+            >
+              <option value="">All tags</option>
+              {resourceTags.map((tag) => (
+                <option key={tag} value={tag}>
+              {tag.replace("-", " ")}
+                </option>
+          ))}
+            </select>
+          </div>
+        </div>
+      </div>
+
       <Input
         value={searchTerm}
         onChange={(e) => onSearchChange(e.target.value)}
         placeholder="Search by title, course code, or contributor"
-        className="h-10 border-gray-200"
+        className="h-12 border-gray-200 text-base"
       />
-
-      <div className="space-y-2">
-        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Course</div>
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => onCourseChange("")}
-            className={cn(
-              "rounded-full border px-3 py-1 text-xs font-semibold",
-              selectedCourse === ""
-                ? "border-[#036aff] bg-[#036aff]/5 text-[#036aff]"
-                : "border-gray-200 text-gray-600 hover:border-[#036aff]/60",
-            )}
-          >
-            All courses
-          </button>
-          {resourceCourses.map((course) => (
-            <button
-              key={course.code}
-              type="button"
-              onClick={() => onCourseChange(course.code)}
-              className={cn(
-                "rounded-full border px-3 py-1 text-xs font-semibold",
-                selectedCourse === course.code
-                  ? "border-[#036aff] bg-[#036aff]/5 text-[#036aff]"
-                  : "border-gray-200 text-gray-600 hover:border-[#036aff]/60",
-              )}
-            >
-              {course.code}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="space-y-2">
-        <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Tags</div>
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => onTagChange("")}
-            className={cn(
-              "rounded-full border px-3 py-1 text-xs font-semibold",
-              selectedTag === ""
-                ? "border-[#036aff] bg-[#036aff]/5 text-[#036aff]"
-                : "border-gray-200 text-gray-600 hover:border-[#036aff]/60",
-            )}
-          >
-            All tags
-          </button>
-          {resourceTags.map((tag) => (
-            <button
-              key={tag}
-              type="button"
-              onClick={() => onTagChange(tag)}
-              className={cn(
-                "rounded-full border px-3 py-1 text-xs font-semibold capitalize",
-                selectedTag === tag
-                  ? "border-[#036aff] bg-[#036aff]/5 text-[#036aff]"
-                  : "border-gray-200 text-gray-600 hover:border-[#036aff]/60",
-              )}
-            >
-              {tag.replace("-", " ")}
-            </button>
-          ))}
-        </div>
-      </div>
     </div>
   )
 }

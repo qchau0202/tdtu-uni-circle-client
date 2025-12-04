@@ -7,7 +7,7 @@ export interface ProfileStat {
 
 export interface ProfileActivity {
   id: string
-  type: "study-session" | "resource" | "feed"
+  type: "collection" | "resource" | "feed"
   title: string
   meta: string
   date: string
@@ -49,98 +49,86 @@ export const academicYearToKxx = (academicYear: string): string => {
   return `K${lastTwoDigits.toString().padStart(2, "0")}`
 }
 
-export const profileInfo: ProfileInfo = {
-  username: "quocchau_dev",
-  studentId: "523k0002",
-  name: "Quoc Chau",
-  dateOfBirth: "2005-03-15",
-  academicYear: "2023-2024",
-  phoneNumber: "+84 123 456 789",
-  email: "523k0002@student.tdtu.edu.vn",
-  avatar: undefined,
-  initials: "QC",
-  major: "Software Engineering",
-  bio: "Enjoys building study tools, leading peer sessions for AI and Data Structures, and collecting high‑quality notes.",
-  focusAreas: ["AI fundamentals", "Data Structures", "Software Engineering"],
-  socialLinks: [
-    {
-      platform: "facebook",
-      url: "https://facebook.com/quocchau",
-      label: "Facebook",
-    },
-    {
-      platform: "instagram",
-      url: "https://instagram.com/quocchau",
-      label: "Instagram",
-    },
-    {
-      platform: "unicircle",
-      url: "/profile",
-      label: "UniCircle Profile",
-    },
-  ],
+// Load from localStorage or use default
+function loadProfileInfoFromStorage(): ProfileInfo {
+  if (typeof window === "undefined") {
+    return {
+      username: "",
+      studentId: "",
+      name: "",
+      dateOfBirth: "",
+      academicYear: "",
+      phoneNumber: "",
+      email: "",
+      initials: "",
+      major: "",
+      bio: "",
+      focusAreas: [],
+      socialLinks: [],
+      privacy: {
+        phoneVisible: false,
+        emailVisible: false,
+      },
+    }
+  }
+  try {
+    const stored = localStorage.getItem("unicircle_profile_info")
+    if (stored) {
+      return JSON.parse(stored)
+    }
+  } catch (error) {
+    console.error("Failed to load profile info from localStorage:", error)
+  }
+  return {
+    username: "",
+    studentId: "",
+    name: "",
+    dateOfBirth: "",
+    academicYear: "",
+    phoneNumber: "",
+    email: "",
+    initials: "",
+    major: "",
+    bio: "",
+    focusAreas: [],
+    socialLinks: [],
   privacy: {
-    phoneVisible: false, // Hidden by default
-    emailVisible: false, // Hidden by default
+      phoneVisible: false,
+      emailVisible: false,
   },
+  }
 }
 
-export const profileStats: ProfileStat[] = [
-  {
-    id: "sessions-hosted",
-    label: "Study sessions hosted",
-    value: "12",
-    helper: "3 this month",
-  },
-  {
-    id: "sessions-joined",
-    label: "Sessions joined",
-    value: "28",
-    helper: "Mostly AI & DSA",
-  },
-  {
-    id: "resources-shared",
-    label: "Resources shared",
-    value: "9",
-    helper: "5 Software Eng, 4 AI",
-  },
-  {
-    id: "upvotes",
-    label: "Peer upvotes",
-    value: "143",
-    helper: "On notes & past papers",
-  },
-]
+export const profileInfo: ProfileInfo = loadProfileInfoFromStorage()
 
-export const profileActivities: ProfileActivity[] = [
-  {
-    id: "a1",
-    type: "study-session",
-    title: "Hosted “Intro to AI – Search & Heuristics” review",
-    meta: "Study Session · 18 students joined",
-    date: "Today · 7:30 PM",
-  },
-  {
-    id: "a2",
-    type: "resource",
-    title: "Shared “503045 Sprint Planning Checklist”",
-    meta: "Resource · 503045 - Software Engineering",
-    date: "Yesterday",
-  },
-  {
-    id: "a3",
-    type: "feed",
-    title: "Posted midterm reflection on Microeconomics elasticity",
-    meta: "Student Feed · 24 likes · 6 comments",
-    date: "This week",
-  },
-  {
-    id: "a4",
-    type: "resource",
-    title: "Uploaded “Data Structures Graph Algorithms Sketchbook”",
-    meta: "Resource · 504070 - Data Structures",
-    date: "Last week",
-  },
-]
+// Load from localStorage or use empty array
+function loadProfileStatsFromStorage(): ProfileStat[] {
+  if (typeof window === "undefined") return []
+  try {
+    const stored = localStorage.getItem("unicircle_profile_stats")
+    if (stored) {
+      return JSON.parse(stored)
+    }
+  } catch (error) {
+    console.error("Failed to load profile stats from localStorage:", error)
+  }
+  return []
+}
 
+export const profileStats: ProfileStat[] = loadProfileStatsFromStorage()
 
+// Load from localStorage or use empty array
+function loadProfileActivitiesFromStorage(): ProfileActivity[] {
+  if (typeof window === "undefined") return []
+  try {
+    const stored = localStorage.getItem("unicircle_profile_activities")
+    if (stored) {
+      return JSON.parse(stored)
+    }
+  } catch (error) {
+    console.error("Failed to load profile activities from localStorage:", error)
+  }
+  return []
+}
+
+export const profileActivities: ProfileActivity[] = loadProfileActivitiesFromStorage()

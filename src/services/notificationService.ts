@@ -149,7 +149,7 @@ export function sendJoinRequestNotification(
     fromStudentName,
     sessionId,
     sessionTitle,
-    link: `/study-sessions?tab=requests`,
+    link: `/collections`,
   })
 }
 
@@ -165,7 +165,7 @@ export function sendRequestResponseNotification(
     message: `Your request to join "${sessionTitle}" has been ${accepted ? "accepted" : "rejected"}`,
     studentId: targetStudentId,
     sessionTitle,
-    link: accepted ? `/study-sessions` : undefined,
+    link: accepted ? `/collections` : undefined,
   })
 }
 

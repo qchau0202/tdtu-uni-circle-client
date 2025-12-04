@@ -15,7 +15,6 @@ const AuthPage = () => {
   const [loginPassword, setLoginPassword] = useState("")
   const [registerName, setRegisterName] = useState("")
   const [registerEmail, setRegisterEmail] = useState("")
-  const [registerStudentId, setRegisterStudentId] = useState("")
   const [registerPassword, setRegisterPassword] = useState("")
   const [registerConfirmPassword, setRegisterConfirmPassword] = useState("")
 
@@ -53,11 +52,11 @@ const AuthPage = () => {
       })
       return
     }
-    if (!registerName || !registerEmail || !registerStudentId || !registerPassword) {
+    if (!registerName || !registerEmail || !registerPassword) {
       toast.error("Please fill in all fields")
       return
     }
-    const success = await register(registerName, registerEmail, registerStudentId, registerPassword)
+    const success = await register(registerName, registerEmail, registerPassword)
     if (success) {
       toast.success("Account created successfully!", {
         description: "Welcome to UniCircle!",
@@ -187,20 +186,6 @@ const AuthPage = () => {
                       placeholder="your.email@student.tdtu.edu.vn"
                       value={registerEmail}
                       onChange={(e) => setRegisterEmail(e.target.value)}
-                      required
-                      className="border-gray-200"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <label htmlFor="register-student-id" className="text-sm font-semibold text-[#141414]">
-                      Student ID
-                    </label>
-                    <Input
-                      id="register-student-id"
-                      type="text"
-                      placeholder="523k0002"
-                      value={registerStudentId}
-                      onChange={(e) => setRegisterStudentId(e.target.value)}
                       required
                       className="border-gray-200"
                     />

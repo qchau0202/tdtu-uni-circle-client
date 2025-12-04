@@ -1,8 +1,7 @@
-import { PanelLeft, PanelLeftClose, Search, MessageCircle, LogOut, User } from "lucide-react"
+import { PanelLeft, PanelLeftClose, LogOut, User } from "lucide-react"
 import { Link, useNavigate } from "react-router-dom"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { toast } from "sonner"
 import { useAuth } from "@/contexts/AuthContext"
@@ -33,7 +32,7 @@ export function Header({ isSidebarCollapsed, onToggleSidebar }: HeaderProps) {
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-gray-200 bg-white">
-      <div className="flex h-16 items-center gap-4 px-6">
+      <div className="flex h-16 items-center justify-between px-6">
         {/* Sidebar toggle + Logo */}
         <div className="flex items-center gap-3">
           <Button
@@ -48,34 +47,17 @@ export function Header({ isSidebarCollapsed, onToggleSidebar }: HeaderProps) {
               <PanelLeftClose className="h-5 w-5" />
             )}
           </Button>
-          <div className="flex items-center gap-2">
-            <img src="/UniCircle_logo-removebg.png" alt="Uni Circle" className="w-10 h-10 object-contain" />
-            <span className="text-xl font-bold text-[#141414]">UniCircle</span>
-          </div>
-        </div>
-
-        {/* Search Bar */}
-        <div className="flex-1 max-w-md mx-auto">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-            <Input
-              type="search"
-              placeholder="Search"
-              className="w-full pl-10 bg-[#f5f5f5] border-none"
-            />
-          </div>
+          <Link
+            to="/"
+            className="flex items-center gap-2 hover:opacity-80 transition-opacity cursor-pointer"
+          >
+            <img src="/UniCircle_logo-removebg.png" alt="Uni Circle" className="w-12 h-12 object-contain" />
+            <span className="text-2xl font-bold text-[#141414]">UniCircle</span>
+          </Link>
         </div>
 
         {/* Right Side Actions */}
         <div className="flex items-center gap-4">
-          {/* Chat Icon */}
-          <Button variant="ghost" size="icon" className="relative">
-            <MessageCircle className="h-5 w-5 text-[#141414]" />
-            <Badge className="absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0 bg-[#036aff] text-white text-xs">
-              2
-            </Badge>
-          </Button>
-
           {/* Notification Icon */}
           <NotificationDropdown />
 
@@ -83,24 +65,24 @@ export function Header({ isSidebarCollapsed, onToggleSidebar }: HeaderProps) {
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="flex items-center gap-2 h-auto p-2">
-                <Avatar className="h-8 w-8">
+                <Avatar className="h-10 w-10">
                   <AvatarImage src={user?.avatar} alt={user?.name} />
-                  <AvatarFallback className="bg-[#f5f5f5] text-[#141414]">
+                  <AvatarFallback className="bg-[#f5f5f5] text-[#141414] text-base">
                     {user?.initials || "U"}
                   </AvatarFallback>
                 </Avatar>
                 <div className="flex flex-col items-start text-left">
-                  <span className="text-sm font-medium text-[#141414]">
+                  <span className="text-base font-medium text-[#141414]">
                     {user?.name || "User"}
                   </span>
-                  <span className="text-xs text-gray-500">{user?.email || ""}</span>
+                  <span className="text-sm text-gray-500">{user?.email || ""}</span>
                 </div>
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56 bg-white border border-gray-200 rounded-lg shadow-lg p-1.5">
+            <DropdownMenuContent align="end" className="w-56 bg-white border border-gray-200 rounded-lg shadow-lg p-2">
               <DropdownMenuItem asChild>
-                <Link to="/profile" className="flex items-center gap-2 cursor-pointer">
-                  <User className="h-4 w-4" />
+                <Link to="/profile" className="flex items-center gap-2 cursor-pointer text-base">
+                  <User className="h-5 w-5" />
                   <span className="font-semibold text-[#141414]">Profile</span>
                 </Link>
               </DropdownMenuItem>
@@ -108,9 +90,9 @@ export function Header({ isSidebarCollapsed, onToggleSidebar }: HeaderProps) {
               <DropdownMenuItem
                 variant="destructive"
                 onClick={handleLogout}
-                className="flex items-center gap-2 cursor-pointer"
+                className="flex items-center gap-2 cursor-pointer text-base"
               >
-                <LogOut className="h-4 w-4" />
+                <LogOut className="h-5 w-5" />
                 <span className="font-semibold">Logout</span>
               </DropdownMenuItem>
             </DropdownMenuContent>

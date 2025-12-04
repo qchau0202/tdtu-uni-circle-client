@@ -1,5 +1,13 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from "react"
+import { createContext, useContext, useState, useEffect, type ReactNode } from "react"
 import { useNavigate } from "react-router-dom"
+import {
+  apiLogin,
+  apiRegister,
+  apiMe,
+  apiLogout,
+  type AuthSession,
+  type BackendUser,
+} from "@/services/auth/authService"
 
 export interface User {
   id: string
@@ -13,7 +21,7 @@ export interface User {
 interface AuthContextType {
   user: User | null
   login: (email: string, password: string) => Promise<boolean>
-  register: (name: string, email: string, studentId: string, password: string) => Promise<boolean>
+  register: (name: string, email: string, password: string) => Promise<boolean>
   logout: () => void
   isAuthenticated: boolean
 }
@@ -22,73 +30,141 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
+  const [session, setSession] = useState<AuthSession | null>(null)
   const navigate = useNavigate()
 
-  // Load user from localStorage on mount
+  const buildUserFromBackend = (backendUser: BackendUser): User => {
+    const email = backendUser.email
+    const nameFromBackend =
+      // Prefer the nickname/username stored in user_metadata,
+      // then fall back to top-level username, then email prefix.
+      (backendUser.user_metadata as any)?.username ||
+      backendUser.username ||
+      backendUser.user_metadata?.full_name ||
+      email?.split("@")[0] ||
+      "Student"
+
+    const studentCodeBackend =
+      backendUser.student_code ||
+      backendUser.user_metadata?.student_code ||
+      email?.split("@")[0] ||
+      ""
+
+    const initials =
+      nameFromBackend
+        .split(" ")
+        .filter(Boolean)
+        .map((p: string) => p.charAt(0).toUpperCase())
+        .join("")
+        .slice(0, 2) || "U"
+
+    const avatar = backendUser.user_metadata?.avatar_url
+
+    return {
+      id: backendUser.id,
+      email,
+      name: nameFromBackend,
+      studentId: studentCodeBackend,
+      initials,
+      avatar,
+    }
+  }
+
+  // Load user & session from localStorage on mount and verify via /me if possible
   useEffect(() => {
     const storedUser = localStorage.getItem("unicircle_user")
+    const storedSession = localStorage.getItem("unicircle_session")
+
+    let parsedUser: User | null = null
+    let parsedSession: AuthSession | null = null
+
     if (storedUser) {
       try {
-        setUser(JSON.parse(storedUser))
-      } catch (e) {
+        parsedUser = JSON.parse(storedUser)
+        setUser(parsedUser)
+      } catch {
         localStorage.removeItem("unicircle_user")
       }
     }
+
+    if (storedSession) {
+      try {
+        parsedSession = JSON.parse(storedSession)
+        setSession(parsedSession)
+      } catch {
+        localStorage.removeItem("unicircle_session")
+      }
+    }
+
+    // Optionally validate token with backend
+    const validate = async () => {
+      if (!parsedSession?.access_token) return
+      try {
+        const me = await apiMe(parsedSession.access_token)
+        const mapped = buildUserFromBackend(me.user)
+        setUser(mapped)
+        localStorage.setItem("unicircle_user", JSON.stringify(mapped))
+      } catch (err) {
+        console.error("Failed to validate session, clearing auth:", err)
+        setUser(null)
+        setSession(null)
+        localStorage.removeItem("unicircle_user")
+        localStorage.removeItem("unicircle_session")
+      }
+    }
+
+    // Fire and forget
+    void validate()
   }, [])
 
   const login = async (email: string, password: string): Promise<boolean> => {
-    // Mock login - in real app, this would call an API
-    // For demo, we'll create a user from email
-    const studentId = email.split("@")[0] || "unknown"
-    const nameParts = email.split("@")[0].split(".") || ["User"]
-    const name = nameParts.map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join(" ") || "User"
-    const initials = nameParts
-      .map((p) => p.charAt(0).toUpperCase())
-      .join("")
-      .slice(0, 2) || "U"
+    try {
+      const result = await apiLogin(email, password)
+      const mappedUser = buildUserFromBackend(result.user)
 
-    const newUser: User = {
-      id: `user-${Date.now()}`,
-      studentId,
-      name,
-      email,
-      initials,
-    }
+      setUser(mappedUser)
+      setSession(result.session)
+      localStorage.setItem("unicircle_user", JSON.stringify(mappedUser))
+      localStorage.setItem("unicircle_session", JSON.stringify(result.session))
 
-    setUser(newUser)
-    localStorage.setItem("unicircle_user", JSON.stringify(newUser))
     return true
+    } catch (error) {
+      console.error("Login failed:", error)
+      return false
+    }
   }
 
   const register = async (
     name: string,
     email: string,
-    studentId: string,
     password: string,
   ): Promise<boolean> => {
-    // Mock register
-    const nameParts = name.split(" ") || [name]
-    const initials = nameParts
-      .map((p) => p.charAt(0).toUpperCase())
-      .join("")
-      .slice(0, 2) || "U"
+    try {
+      // Use real backend register; backend derives student code from email.
+      await apiRegister(name, email, password)
 
-    const newUser: User = {
-      id: `user-${Date.now()}`,
-      studentId,
-      name,
-      email,
-      initials,
+      // After successful registration, log the user in to obtain tokens & user data.
+      const loggedIn = await login(email, password)
+      return loggedIn
+    } catch (error) {
+      console.error("Register failed:", error)
+      return false
     }
-
-    setUser(newUser)
-    localStorage.setItem("unicircle_user", JSON.stringify(newUser))
-    return true
   }
 
   const logout = () => {
+    const accessToken = session?.access_token
+
     setUser(null)
+    setSession(null)
     localStorage.removeItem("unicircle_user")
+    localStorage.removeItem("unicircle_session")
+
+    if (accessToken) {
+      // best-effort; don't await to avoid blocking UX
+      void apiLogout(accessToken)
+    }
+
     navigate("/auth")
   }
 

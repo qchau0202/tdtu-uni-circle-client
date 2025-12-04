@@ -10,8 +10,8 @@ interface SidebarProps {
 
 const menuItems = [
   { id: "home", label: "Student Feed", icon: ListChecks, path: "/" },
-  { id: "study-sessions", label: "Study Sessions", icon: BookOpen, path: "/study-sessions" },
   { id: "resource", label: "Resource", icon: FolderOpen, path: "/resource" },
+  { id: "collections", label: "Collections", icon: BookOpen, path: "/collections" },
 ]
 
 export function Sidebar({ activeItem = "home", collapsed = false }: SidebarProps) {
