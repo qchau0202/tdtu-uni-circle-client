@@ -16,6 +16,8 @@ export interface User {
   email: string
   initials: string
   avatar?: string
+  academicYear?: string
+  facultyCode?: string
 }
 
 interface AuthContextType {
@@ -50,6 +52,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       email?.split("@")[0] ||
       ""
 
+    const academicYear =
+      (backendUser.user_metadata as any)?.academic_year || undefined
+
+    const facultyCode =
+      (backendUser.user_metadata as any)?.faculty_code || undefined
+
     const initials =
       nameFromBackend
         .split(" ")
@@ -67,6 +75,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       studentId: studentCodeBackend,
       initials,
       avatar,
+      academicYear,
+      facultyCode,
     }
   }
 

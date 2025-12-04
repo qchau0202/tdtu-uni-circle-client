@@ -14,121 +14,43 @@ export interface ProfileActivity {
 }
 
 export interface SocialLink {
-  platform: "facebook" | "instagram" | "linkedin" | "github" | "unicircle"
+  platform: string
   url: string
-  label: string
+  label?: string
 }
 
+// Shape of profile data used in the UI (mapped from backend profile & auth user)
 export interface ProfileInfo {
-  username: string
+  id: string
   studentId: string
-  name: string
-  dateOfBirth: string // Format: YYYY-MM-DD
-  academicYear: string // Format: YYYY-YYYY (e.g., "2023-2024")
+  displayName: string
+  dob: string
   phoneNumber: string
-  email: string
-  avatar?: string
-  initials: string
-  major: string
-  bio: string
-  focusAreas: string[]
+  faculty: string
+  bio?: string | null
+  academicYear: string
+  avatarUrl?: string | null
   socialLinks: SocialLink[]
-  privacy: {
-    phoneVisible: boolean // Default: false (hidden)
-    emailVisible: boolean // Default: false (hidden)
-  }
+  updatedAt?: string
+  email: string
 }
 
-// Helper function to convert academic year (YYYY-YYYY) to Kxx format
-export const academicYearToKxx = (academicYear: string): string => {
-  const [startYear] = academicYear.split("-")
-  const year = parseInt(startYear)
-  // Kxx format: K + last 2 digits of start year
-  // For 2023 -> K23, 2024 -> K24, etc.
-  const lastTwoDigits = year % 100
-  return `K${lastTwoDigits.toString().padStart(2, "0")}`
+export const emptyProfileInfo: ProfileInfo = {
+  id: "",
+  studentId: "",
+  displayName: "",
+  dob: "",
+  phoneNumber: "",
+  faculty: "",
+  bio: "",
+  academicYear: "",
+  avatarUrl: "",
+  socialLinks: [],
+  updatedAt: "",
+  email: "",
 }
 
-// Load from localStorage or use default
-function loadProfileInfoFromStorage(): ProfileInfo {
-  if (typeof window === "undefined") {
-    return {
-      username: "",
-      studentId: "",
-      name: "",
-      dateOfBirth: "",
-      academicYear: "",
-      phoneNumber: "",
-      email: "",
-      initials: "",
-      major: "",
-      bio: "",
-      focusAreas: [],
-      socialLinks: [],
-      privacy: {
-        phoneVisible: false,
-        emailVisible: false,
-      },
-    }
-  }
-  try {
-    const stored = localStorage.getItem("unicircle_profile_info")
-    if (stored) {
-      return JSON.parse(stored)
-    }
-  } catch (error) {
-    console.error("Failed to load profile info from localStorage:", error)
-  }
-  return {
-    username: "",
-    studentId: "",
-    name: "",
-    dateOfBirth: "",
-    academicYear: "",
-    phoneNumber: "",
-    email: "",
-    initials: "",
-    major: "",
-    bio: "",
-    focusAreas: [],
-    socialLinks: [],
-  privacy: {
-      phoneVisible: false,
-      emailVisible: false,
-  },
-  }
-}
-
-export const profileInfo: ProfileInfo = loadProfileInfoFromStorage()
-
-// Load from localStorage or use empty array
-function loadProfileStatsFromStorage(): ProfileStat[] {
-  if (typeof window === "undefined") return []
-  try {
-    const stored = localStorage.getItem("unicircle_profile_stats")
-    if (stored) {
-      return JSON.parse(stored)
-    }
-  } catch (error) {
-    console.error("Failed to load profile stats from localStorage:", error)
-  }
-  return []
-}
-
-export const profileStats: ProfileStat[] = loadProfileStatsFromStorage()
-
-// Load from localStorage or use empty array
-function loadProfileActivitiesFromStorage(): ProfileActivity[] {
-  if (typeof window === "undefined") return []
-  try {
-    const stored = localStorage.getItem("unicircle_profile_activities")
-    if (stored) {
-      return JSON.parse(stored)
-    }
-  } catch (error) {
-    console.error("Failed to load profile activities from localStorage:", error)
-  }
-  return []
-}
-
-export const profileActivities: ProfileActivity[] = loadProfileActivitiesFromStorage()
+// Stats and activity will later be wired to real services.
+// For now they default to empty (no fake test data).
+export const profileStats: ProfileStat[] = []
+export const profileActivities: ProfileActivity[] = []

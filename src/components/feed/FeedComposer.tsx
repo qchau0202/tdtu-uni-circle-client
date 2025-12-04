@@ -40,7 +40,7 @@ export function FeedComposer() {
               value={content}
               onChange={(e) => setContent(e.target.value)}
               className="w-full resize-none rounded-lg border border-gray-200 px-4 py-3 text-base outline-none focus:ring-2 focus:ring-[#036aff]/20"
-              placeholder="Ask a question about your course or share a study thread (Reddit-style)..."
+              placeholder="Ask a question about your course or share a study thread"
             />
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2">

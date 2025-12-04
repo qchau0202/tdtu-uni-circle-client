@@ -52,11 +52,6 @@ function getInitials(name: string): string {
     .slice(0, 2)
 }
 
-// Generate email from student ID
-function generateEmail(studentId: string): string {
-  return `${studentId}@student.tdtu.edu.vn`
-}
-
 // Generate random date within last 30 days
 function randomRecentDate(): string {
   const daysAgo = Math.floor(Math.random() * 30)
@@ -386,106 +381,6 @@ export function generateCollections(resources: any[], feedPosts: any[]) {
   return collections
 }
 
-// Generate profile data
-export function generateProfileData() {
-  const studentId = "523k0002"
-  const name = "Quoc Chau"
-  
-  return {
-    profileInfo: {
-      username: "quocchau_dev",
-      studentId,
-      name,
-      dateOfBirth: "2005-03-15",
-      academicYear: "2023-2024",
-      phoneNumber: "+84 123 456 789",
-      email: generateEmail(studentId),
-      avatar: undefined,
-      initials: getInitials(name),
-      major: "Software Engineering",
-      bio: "Enjoys building study tools, leading peer sessions for AI and Data Structures, and collecting high‑quality notes.",
-      focusAreas: ["AI fundamentals", "Data Structures", "Software Engineering"],
-      socialLinks: [
-        {
-          platform: "facebook" as const,
-          url: "https://facebook.com/quocchau",
-          label: "Facebook",
-        },
-        {
-          platform: "instagram" as const,
-          url: "https://instagram.com/quocchau",
-          label: "Instagram",
-        },
-        {
-          platform: "unicircle" as const,
-          url: "/profile",
-          label: "UniCircle Profile",
-        },
-      ],
-      privacy: {
-        phoneVisible: false,
-        emailVisible: false,
-      },
-    },
-    profileStats: [
-      {
-        id: "collections-created",
-        label: "Collections created",
-        value: "8",
-        helper: "3 this month",
-      },
-      {
-        id: "resources-shared",
-        label: "Resources shared",
-        value: "12",
-        helper: "5 Software Eng, 4 AI, 3 DS",
-      },
-      {
-        id: "threads-posted",
-        label: "Threads posted",
-        value: "15",
-        helper: "Mostly AI & DSA",
-      },
-      {
-        id: "upvotes",
-        label: "Peer upvotes",
-        value: "143",
-        helper: "On notes & past papers",
-      },
-    ],
-    profileActivities: [
-      {
-        id: "a1",
-        type: "collection" as const,
-        title: "Created \"Web Dev Final\" collection",
-        meta: "Collection · 12 items",
-        date: "Today · 7:30 PM",
-      },
-      {
-        id: "a2",
-        type: "resource" as const,
-        title: "Shared \"503045 Sprint Planning Checklist\"",
-        meta: "Resource · 503045 - Software Engineering",
-        date: "Yesterday",
-      },
-      {
-        id: "a3",
-        type: "feed" as const,
-        title: "Posted midterm reflection on Microeconomics elasticity",
-        meta: "Student Feed · 24 likes · 6 comments",
-        date: "This week",
-      },
-      {
-        id: "a4",
-        type: "resource" as const,
-        title: "Uploaded \"Data Structures Graph Algorithms Sketchbook\"",
-        meta: "Resource · 504070 - Data Structures",
-        date: "Last week",
-      },
-    ],
-  }
-}
-
 // Main function to generate all test data
 export function generateAllTestData() {
   console.log("🚀 Generating test data...")
@@ -494,31 +389,18 @@ export function generateAllTestData() {
   const feedPosts = generateFeedPosts()
   const feedFriends = generateFeedFriends()
   const collections = generateCollections(resources, feedPosts)
-  const profileData = generateProfileData()
   
   // Store in localStorage
   localStorage.setItem("unicircle_resources", JSON.stringify(resources))
   localStorage.setItem("unicircle_feed_posts", JSON.stringify(feedPosts))
   localStorage.setItem("unicircle_feed_friends", JSON.stringify(feedFriends))
   localStorage.setItem("unicircle_collections", JSON.stringify(collections))
-  localStorage.setItem("unicircle_profile_info", JSON.stringify(profileData.profileInfo))
-  localStorage.setItem("unicircle_profile_stats", JSON.stringify(profileData.profileStats))
-  localStorage.setItem("unicircle_profile_activities", JSON.stringify(profileData.profileActivities))
-  
-  console.log("✅ Test data generated successfully!")
-  console.log(`   - ${resources.length} resources`)
-  console.log(`   - ${feedPosts.length} feed posts`)
-  console.log(`   - ${feedFriends.length} feed friends`)
-  console.log(`   - ${collections.length} collections`)
-  console.log("   - Profile data")
-  console.log("\n💡 Data stored in localStorage. Refresh the page to see changes.")
   
   return {
     resources,
     feedPosts,
     feedFriends,
     collections,
-    profileData,
   }
 }
 

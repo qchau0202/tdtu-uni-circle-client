@@ -1,11 +1,9 @@
-import { useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { MessageCircle, Heart, Globe2, Users } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
-import { toast } from "sonner"
 import type { FeedPost } from "@/data/feed"
 
 interface FeedPostCardProps {
@@ -15,9 +13,6 @@ interface FeedPostCardProps {
 export function FeedPostCard({ post }: FeedPostCardProps) {
   const navigate = useNavigate()
   const isFriendsOnly = post.privacy === "friends"
-  const [liked, setLiked] = useState(false)
-
-  const likeCount = liked ? post.stats.likes + 1 : post.stats.likes
 
   const handleOpenThread = () => {
     navigate(`/feed/${post.id}`)
@@ -132,46 +127,17 @@ export function FeedPostCard({ post }: FeedPostCardProps) {
           </div>
         )}
 
-          {/* Footer actions */}
-          <div className="flex items-center justify-between pt-1">
-            <div className="flex items-center gap-4 text-xs text-gray-500">
-              <span>{likeCount} likes</span>
-              <span>{post.comments.length} comments</span>
-            </div>
-          <div className="flex items-center gap-2">
-              <button
-                type="button"
-              onClick={(e) => {
-                e.stopPropagation()
-                  const newLiked = !liked
-                  setLiked(newLiked)
-                toast.success(newLiked ? "Thread liked!" : "Like removed", {
-                  description: newLiked
-                    ? "You liked this thread"
-                    : "You removed your like from this thread",
-                  })
-                }}
-                className={cn(
-                "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold hover:bg-[#f5f5f5]",
-                  liked ? "text-red-500" : "text-[#141414]",
-                )}
-              >
-              <Heart className={cn("h-3.5 w-3.5", liked && "fill-red-500 text-red-500")} />
-                Like
-              </button>
-              <button
-                type="button"
-              onClick={(e) => {
-                e.stopPropagation()
-                handleOpenThread()
-              }}
-              className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold text-[#141414] hover:bg-[#f5f5f5]"
-              >
-              <MessageCircle className="h-3.5 w-3.5" />
-              View thread
-              </button>
-            </div>
-          </div>
+        {/* Footer stats (static icons + counts only) */}
+        <div className="flex items-center justify-start gap-4 pt-1 text-xs text-gray-500">
+          <span className="inline-flex items-center gap-1.5">
+            <Heart className="h-3.5 w-3.5 text-gray-400" />
+            <span>{post.stats.likes}</span>
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <MessageCircle className="h-3.5 w-3.5 text-gray-400" />
+            <span>{post.comments.length}</span>
+          </span>
+        </div>
         </CardContent>
       </Card>
   )

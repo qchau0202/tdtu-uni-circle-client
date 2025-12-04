@@ -1,6 +1,5 @@
 import { useState } from "react"
 import { Outlet, useLocation } from "react-router-dom"
-import { Header } from "./Header"
 import { Sidebar } from "./Sidebar"
 
 export function Layout() {
@@ -18,25 +17,15 @@ export function Layout() {
   }
 
   return (
-    <div className="min-h-screen bg-white">
-      <Header
-        isSidebarCollapsed={isSidebarCollapsed}
-        onToggleSidebar={() => setIsSidebarCollapsed((prev) => !prev)}
+    <div className="h-screen bg-white flex overflow-hidden">
+      <Sidebar
+        activeItem={getActiveItem()}
+        collapsed={isSidebarCollapsed}
+        onToggleCollapse={() => setIsSidebarCollapsed((prev) => !prev)}
       />
-      <div className="flex h-[calc(100vh-4rem)] overflow-hidden">
-        <div
-          className={
-            isSidebarCollapsed
-              ? "w-20 shrink-0 transition-all duration-200"
-              : "w-64 shrink-0 transition-all duration-200"
-          }
-        >
-          <Sidebar activeItem={getActiveItem()} collapsed={isSidebarCollapsed} />
-        </div>
-        <div className="flex-1 border border-gray-200">
+      <div className="flex-1 border-l border-gray-200 h-screen overflow-hidden">
           <div className="h-full overflow-y-auto p-6">
             <Outlet />
-          </div>
         </div>
       </div>
     </div>
