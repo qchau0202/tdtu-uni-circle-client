@@ -12,6 +12,10 @@ const Toaster = ({ ...props }: ToasterProps) => {
     <Sonner
       theme="light"
       className="toaster group"
+      closeButton
+      richColors
+      expand={true}
+      duration={4000}
       toastOptions={{
         classNames: {
           toast:
@@ -19,6 +23,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
           description: "text-gray-600",
           actionButton: "bg-[#036aff] text-white hover:bg-[#036aff]/90 rounded-md",
           cancelButton: "bg-[#f5f5f5] text-[#141414] hover:bg-[#e5e5e5] rounded-md",
+          closeButton: "bg-transparent hover:bg-gray-100 text-gray-400 hover:text-gray-600 rounded-md",
           success: "border-l-[3px] border-l-green-500",
           error: "border-l-[3px] border-l-red-500",
           info: "border-l-[3px] border-l-[#036aff]",

@@ -88,7 +88,35 @@ export async function apiMe(accessToken: string): Promise<{ user: BackendUser }>
     },
   })
 
-  return handleResponse<{ user: BackendUser }>(res)
+  // Return status code along with data for better error handling
+  const contentType = res.headers.get("content-type")
+  const isJson = contentType && contentType.includes("application/json")
+  const data = isJson ? await res.json() : null
+
+  if (!res.ok) {
+    const message =
+      (data && (data.error?.message || data.message)) ||
+      `HTTP ${res.status} – Authentication request failed`
+    const error = new Error(message) as Error & { status?: number }
+    error.status = res.status
+    throw error
+  }
+
+  return data as { user: BackendUser }
+}
+
+export async function apiRefreshToken(
+  refreshToken: string,
+): Promise<{ session: AuthSession }> {
+  const res = await fetch(`${AUTH_BASE_URL}/refresh`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ refresh_token: refreshToken }),
+  })
+
+  return handleResponse<{ session: AuthSession }>(res)
 }
 
 export async function apiLogout(accessToken: string): Promise<void> {

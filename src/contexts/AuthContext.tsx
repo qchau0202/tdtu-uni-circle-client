@@ -4,6 +4,7 @@ import {
   apiLogin,
   apiRegister,
   apiMe,
+  apiRefreshToken,
   apiLogout,
   type AuthSession,
   type BackendUser,
@@ -115,12 +116,42 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const mapped = buildUserFromBackend(me.user)
         setUser(mapped)
         localStorage.setItem("unicircle_user", JSON.stringify(mapped))
-      } catch (err) {
-        console.error("Failed to validate session, clearing auth:", err)
-        setUser(null)
-        setSession(null)
-        localStorage.removeItem("unicircle_user")
-        localStorage.removeItem("unicircle_session")
+      } catch (err: any) {
+        // Only clear tokens if we get a 401 (Unauthorized) - token is invalid/expired
+        // Don't clear on network errors or other issues (500, 503, etc.)
+        const status = err?.status || (err as Response)?.status
+        if (status === 401) {
+          // Try to refresh the token before clearing
+          if (parsedSession?.refresh_token) {
+            try {
+              console.log("Access token expired, attempting to refresh...")
+              const refreshed = await apiRefreshToken(parsedSession.refresh_token)
+              setSession(refreshed.session)
+              localStorage.setItem("unicircle_session", JSON.stringify(refreshed.session))
+              
+              // Retry getting user info with new token
+              const me = await apiMe(refreshed.session.access_token)
+              const mapped = buildUserFromBackend(me.user)
+              setUser(mapped)
+              localStorage.setItem("unicircle_user", JSON.stringify(mapped))
+              console.log("Token refreshed successfully")
+              return
+            } catch (refreshErr) {
+              console.error("Token refresh failed, clearing auth:", refreshErr)
+            }
+          }
+          
+          // If refresh failed or no refresh token, clear everything
+          console.error("Token invalid or expired, clearing auth:", err)
+          setUser(null)
+          setSession(null)
+          localStorage.removeItem("unicircle_user")
+          localStorage.removeItem("unicircle_session")
+        } else {
+          // For other errors (network, server down, etc.), keep the session
+          // User can still use the app with cached data, and we'll retry on next mount
+          console.warn("Failed to validate session (non-401 error), keeping cached session:", err)
+        }
       }
     }
 

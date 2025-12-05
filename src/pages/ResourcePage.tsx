@@ -1,15 +1,16 @@
-import { useMemo, useState, useEffect } from "react"
+import { useMemo, useState, useEffect, useCallback } from "react"
 import { ResourceCard } from "@/components/resource/ResourceCard"
 import { ResourceFilters } from "@/components/resource/ResourceFilters"
-import { resourceItems, resourceCourses, type ResourceItem } from "@/data/resources"
+import { type ResourceItem, mapBackendResourceToItem } from "@/data/resources"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
 import { useAuth } from "@/contexts/AuthContext"
-import { feedFriends } from "@/data/feed"
+import { getResources, createResource } from "@/services/resource/resourceService"
 import {
   Dialog,
   DialogContent,
@@ -28,24 +29,66 @@ import {
 type ResourceScope = "all" | "following" | "mine"
 
 const ResourcePage = () => {
-  const { user } = useAuth()
-  const [resources, setResources] = useState(resourceItems)
+  const { user, accessToken } = useAuth()
+  const [resources, setResources] = useState<ResourceItem[]>([])
   const [searchTerm, setSearchTerm] = useState("")
   const [selectedCourse, setSelectedCourse] = useState("")
   const [selectedTag, setSelectedTag] = useState("")
   const [uploadTitle, setUploadTitle] = useState("")
-  const [uploadUrl, setUploadUrl] = useState("")
   const [uploadCourse, setUploadCourse] = useState("")
   const [uploadDescription, setUploadDescription] = useState("")
-  const [resourceType, setResourceType] = useState<"url" | "document">("url")
-  const [uploadFile, setUploadFile] = useState<File | null>(null)
+  const [resourceType, setResourceType] = useState<"url" | "document">("document")
+  const [uploadFiles, setUploadFiles] = useState<File[]>([])
+  const [uploadTags, setUploadTags] = useState<string[]>([])
+  const [tagInput, setTagInput] = useState("")
   const [isUploadOpen, setIsUploadOpen] = useState(false)
   const [collections, setCollections] = useState<Collection[]>([])
   const [isSaveDialogOpen, setIsSaveDialogOpen] = useState(false)
   const [selectedResourceId, setSelectedResourceId] = useState<string | null>(null)
   const [savedResourceIds, setSavedResourceIds] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(false)
+  const [fetching, setFetching] = useState(false)
   const [scope, setScope] = useState<ResourceScope>("all")
+
+  const fetchResources = useCallback(async () => {
+    if (!user || !accessToken) return
+
+    try {
+      setFetching(true)
+      const response = await getResources(
+        {
+          filter: scope === "mine" ? "my" : scope === "following" ? "following" : "all",
+          course_code: selectedCourse || undefined,
+          hashtag: selectedTag || undefined,
+          search: searchTerm || undefined,
+        },
+        accessToken,
+      )
+
+      const mappedResources = response.resources.map(mapBackendResourceToItem)
+      setResources(mappedResources)
+    } catch (error) {
+      console.error("Failed to fetch resources:", error)
+      toast.error("Failed to load resources", {
+        description: error instanceof Error ? error.message : "Unknown error",
+      })
+      // Set empty array on error so UI still renders
+      setResources([])
+    } finally {
+      setFetching(false)
+    }
+  }, [user, accessToken, scope, selectedCourse, selectedTag, searchTerm])
+
+  // Fetch resources from API
+  useEffect(() => {
+    if (user && accessToken) {
+      fetchResources()
+    } else {
+      // If not logged in, show empty state
+      setResources([])
+      setFetching(false)
+    }
+  }, [fetchResources, user, accessToken])
 
   // Load collections on mount
   useEffect(() => {
@@ -154,36 +197,13 @@ const ResourcePage = () => {
     }
   }
 
-  const friendNames = useMemo(() => new Set(feedFriends.map((f) => f.name)), [])
-
   const filteredResources = useMemo(() => {
-    return resources
-      .filter((resource) => {
-        const isOwner =
-          !!user && (resource.contributor === "You" || resource.contributor === user.name)
-        const isFriend = !isOwner && friendNames.has(resource.contributor)
-
-        const matchesScope =
-          scope === "all"
-            ? true
-            : scope === "mine"
-            ? isOwner
-            : isFriend
-
-        if (!matchesScope) return false
-
-        const matchesSearch =
-          resource.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          resource.courseCode.includes(searchTerm) ||
-          resource.contributor.toLowerCase().includes(searchTerm.toLowerCase())
-        const matchesCourse = selectedCourse ? resource.courseCode === selectedCourse : true
-        const matchesTag = selectedTag ? resource.tags.includes(selectedTag) : true
-        return matchesSearch && matchesCourse && matchesTag
-      })
-      .sort((a, b) => b.votes - a.votes)
-  }, [resources, searchTerm, selectedCourse, selectedTag, scope, user, friendNames])
+    // Resources are already filtered by the API, but we can do client-side filtering if needed
+    return resources.sort((a, b) => b.votes - a.votes)
+  }, [resources])
 
   const handleVote = (resourceId: string) => {
+    // TODO: Implement upvote API call when backend supports it
     const resource = resources.find((r) => r.id === resourceId)
     setResources((prev) =>
       prev.map((resource) =>
@@ -195,67 +215,92 @@ const ResourcePage = () => {
     })
   }
 
-  const handleMockUpload = () => {
-    if (!uploadTitle) {
+  const handleAddTag = () => {
+    if (tagInput.trim() && !uploadTags.includes(tagInput.trim())) {
+      setUploadTags([...uploadTags, tagInput.trim()])
+      setTagInput("")
+    }
+  }
+
+  const handleRemoveTag = (tag: string) => {
+    setUploadTags(uploadTags.filter((t) => t !== tag))
+  }
+
+  const handleUpload = async () => {
+    if (!user || !accessToken) {
+      toast.error("Please log in to upload resources")
+      return
+    }
+
+    if (!uploadTitle.trim()) {
       toast.error("Title required", {
         description: "Please provide a title for your resource",
       })
       return
     }
-    if (resourceType === "url" && !uploadUrl) {
-      toast.error("URL required", {
-        description: "Please provide a URL for your resource",
-      })
-      return
-    }
-    if (resourceType === "document" && !uploadFile) {
+
+    if (resourceType === "document" && uploadFiles.length === 0) {
       toast.error("File required", {
-        description: "Please select a file to upload",
+        description: "Please select at least one file to upload",
       })
       return
     }
 
-    const matchedCourse = resourceCourses.find((course) => course.code === uploadCourse)
+    try {
+      setLoading(true)
+      const newResource = await createResource(
+        {
+          title: uploadTitle.trim(),
+          description: uploadDescription.trim() || undefined,
+          course_code: uploadCourse.trim() || undefined,
+          resource_type: resourceType === "url" ? "URL" : "DOCUMENT",
+          hashtags: uploadTags.length > 0 ? uploadTags : undefined,
+          files: resourceType === "document" && uploadFiles.length > 0 ? uploadFiles : undefined,
+        },
+        accessToken,
+      )
 
-    // For this frontend-only demo, we create a temporary blob URL for documents
-    // so they can be previewed like remote PDFs. This URL may not survive a full reload.
-    const documentUrl =
-      resourceType === "document" && uploadFile ? URL.createObjectURL(uploadFile) : undefined
+      const mappedResource = mapBackendResourceToItem(newResource)
+      setResources((prev) => [mappedResource, ...prev])
 
-    const newResource: ResourceItem = {
-      id: `draft-${Date.now()}`,
-      title: uploadTitle,
-      summary: uploadDescription || "Draft resource waiting for approval.",
-      courseCode: uploadCourse || "503045",
-      courseName: matchedCourse?.name ?? "TDTU Course",
-      tags: ["lecture-notes"],
-      type: resourceType,
-      url: resourceType === "url" ? uploadUrl : documentUrl || "#",
-      fileName: resourceType === "document" ? uploadFile?.name : undefined,
-      contributor: "You",
-      uploadedAt: "Just now",
-      votes: 0,
-    }
-
-    setResources((prev) => {
-      const updated = [newResource, ...prev]
-      try {
-        localStorage.setItem("unicircle_resources", JSON.stringify(updated))
-      } catch (error) {
-        console.error("Failed to persist resources to localStorage:", error)
-      }
-      return updated
-    })
+      // Reset form
     setUploadTitle("")
-    setUploadUrl("")
     setUploadCourse("")
     setUploadDescription("")
-    setUploadFile(null)
-    setResourceType("url")
+      setUploadFiles([])
+      setUploadTags([])
+      setTagInput("")
+      setResourceType("document")
     setIsUploadOpen(false)
+
     toast.success("Resource uploaded!", {
       description: `"${uploadTitle}" has been shared with your classmates`,
     })
+    } catch (error) {
+      console.error("Upload error:", error)
+      toast.error("Failed to upload resource", {
+        description: error instanceof Error ? error.message : "Unknown error",
+      })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Show login prompt if not authenticated
+  if (!user || !accessToken) {
+    return (
+      <div className="space-y-6">
+        <div className="text-center py-12">
+          <p className="text-base text-gray-500 mb-4">Please log in to view resources</p>
+          <Button
+            onClick={() => window.location.href = "/auth"}
+            className="bg-[#036aff] text-white font-bold hover:bg-[#036aff]/90"
+          >
+            Go to Login
+          </Button>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -318,19 +363,22 @@ const ResourcePage = () => {
           />
 
               <div className="space-y-4">
-            {filteredResources.map((resource) => (
-                  <ResourceCard
-                    key={resource.id}
-                    resource={resource}
-                    onVote={handleVote}
-                    onSaveToCollection={handleSaveToCollection}
-                    isSaved={savedResourceIds.has(resource.id)}
-                  />
-            ))}
-            {filteredResources.length === 0 && (
-                  <p className="text-base text-gray-500 text-center py-12">
-                    No resources match your filters yet. Try another course, tag, or scope.
+            {fetching ? (
+              <p className="text-base text-gray-500 text-center py-12">Loading resources...</p>
+            ) : filteredResources.length === 0 ? (
+              <p className="text-base text-gray-500 text-center py-12">
+                No resources match your filters yet. Try another course, tag, or scope.
               </p>
+            ) : (
+              filteredResources.map((resource) => (
+                <ResourceCard
+                  key={resource.id}
+                  resource={resource}
+                  onVote={handleVote}
+                  onSaveToCollection={handleSaveToCollection}
+                  isSaved={savedResourceIds.has(resource.id)}
+                />
+              ))
             )}
           </div>
             </TabsContent>
@@ -462,8 +510,7 @@ const ResourcePage = () => {
           <DialogHeader>
             <DialogTitle className="text-xl">Share a resource</DialogTitle>
             <DialogDescription className="text-base">
-              Upload links or files for your classmates. Files are stored and converted to secure
-              URLs automatically.
+              Upload files for your classmates. Files are stored and converted to secure URLs automatically.
             </DialogDescription>
           </DialogHeader>
 
@@ -481,51 +528,80 @@ const ResourcePage = () => {
               className="border-gray-200 text-base h-11"
             />
 
-            <div className="flex gap-2 rounded-full bg-[#f5f5f5] p-1 text-sm font-semibold">
-              <button
-                type="button"
-                onClick={() => setResourceType("url")}
-                className={cn(
-                  "flex-1 rounded-full px-4 py-2",
-                  resourceType === "url" ? "bg-white text-[#141414] shadow-sm" : "text-gray-600",
-                )}
-              >
-                URL
-              </button>
-              <button
-                type="button"
-                onClick={() => setResourceType("document")}
-                className={cn(
-                  "flex-1 rounded-full px-4 py-2",
-                  resourceType === "document" ? "bg-white text-[#141414] shadow-sm" : "text-gray-600",
-                )}
-              >
-                Document
-              </button>
+            <div className="rounded-lg border border-dashed border-gray-300 p-5 text-center text-sm text-gray-500">
+              <input
+                type="file"
+                accept=".pdf,.doc,.docx,.ppt,.pptx,.jpg,.jpeg,.png,.gif,.mp4,.avi,.mov"
+                multiple
+                className="hidden"
+                id="resource-file-input"
+                onChange={(e) => {
+                  const files = Array.from(e.target.files || [])
+                  setUploadFiles(files)
+                }}
+              />
+              <label htmlFor="resource-file-input" className="cursor-pointer font-semibold text-[#036aff] text-base">
+                {uploadFiles.length > 0
+                  ? `${uploadFiles.length} file${uploadFiles.length > 1 ? "s" : ""} selected`
+                  : "Choose files to upload"}
+              </label>
+              {uploadFiles.length > 0 && (
+                <div className="mt-3 space-y-1">
+                  {uploadFiles.map((file, idx) => (
+                    <p key={idx} className="text-xs text-gray-600">
+                      {file.name} ({(file.size / 1024 / 1024).toFixed(2)} MB)
+                    </p>
+                  ))}
+                </div>
+              )}
+              <p className="mt-2">PDF, Office documents, images, or videos. Max 10MB per file.</p>
             </div>
 
-            {resourceType === "url" ? (
+            <div className="space-y-2">
+              <label className="text-sm font-semibold text-gray-700">Tags (optional)</label>
+              <div className="flex gap-2">
               <Input
-                value={uploadUrl}
-                onChange={(e) => setUploadUrl(e.target.value)}
-                placeholder="Resource URL"
-                className="border-gray-200 text-base h-11"
-              />
-            ) : (
-              <div className="rounded-lg border border-dashed border-gray-300 p-5 text-center text-sm text-gray-500">
-                <input
-                  type="file"
-                  accept=".pdf,.doc,.docx,.ppt,.pptx"
-                  className="hidden"
-                  id="resource-file-input"
-                  onChange={(e) => setUploadFile(e.target.files?.[0] ?? null)}
+                  value={tagInput}
+                  onChange={(e) => setTagInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault()
+                      handleAddTag()
+                    }
+                  }}
+                  placeholder="Add a tag and press Enter"
+                  className="border-gray-200 text-base h-11"
                 />
-                <label htmlFor="resource-file-input" className="cursor-pointer font-semibold text-[#036aff] text-base">
-                  {uploadFile ? uploadFile.name : "Choose a file to upload"}
-                </label>
-                <p className="mt-2">PDF or Office documents preferred.</p>
+                <Button
+                  type="button"
+                  onClick={handleAddTag}
+                  variant="outline"
+                  className="whitespace-nowrap"
+                >
+                  Add
+                </Button>
+              </div>
+              {uploadTags.length > 0 && (
+                <div className="flex flex-wrap gap-2 mt-2">
+                  {uploadTags.map((tag) => (
+                    <Badge
+                      key={tag}
+                      variant="outline"
+                      className="border-gray-200 text-sm px-3 py-1"
+                    >
+                      {tag}
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveTag(tag)}
+                        className="ml-2 text-gray-400 hover:text-gray-600"
+                      >
+                        ×
+                      </button>
+                    </Badge>
+                  ))}
               </div>
             )}
+            </div>
 
             <textarea
               rows={4}
@@ -541,14 +617,16 @@ const ResourcePage = () => {
               variant="ghost"
               className="text-sm font-bold text-[#141414] hover:bg-[#f5f5f5]"
               onClick={() => setIsUploadOpen(false)}
+              disabled={loading}
             >
               Cancel
             </Button>
             <Button
               className="bg-[#036aff] text-white font-bold hover:bg-[#036aff]/90 text-sm px-5 py-2.5"
-              onClick={handleMockUpload}
+              onClick={handleUpload}
+              disabled={loading || fetching}
             >
-              Share resource
+              {loading ? "Uploading..." : "Share resource"}
             </Button>
           </DialogFooter>
         </DialogContent>

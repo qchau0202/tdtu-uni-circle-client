@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom"
-import { BookOpen, FolderOpen, ListChecks, PanelLeft, PanelLeftClose, User } from "lucide-react"
+import { BookOpen, FolderOpen, ListChecks, PanelLeft, PanelLeftClose, User, LogOut } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { useAuth } from "@/contexts/AuthContext"
@@ -19,7 +19,7 @@ const menuItems = [
 ]
 
 export function Sidebar({ activeItem = "home", collapsed = false, onToggleCollapse }: SidebarProps) {
-  const { user } = useAuth()
+  const { user, logout } = useAuth()
 
   return (
     <aside
@@ -86,7 +86,7 @@ export function Sidebar({ activeItem = "home", collapsed = false, onToggleCollap
       </nav>
 
       {/* Bottom: notifications + profile access */}
-      <div className="border-t border-gray-100 px-3 py-3">
+      <div className="border-t border-gray-100 px-3 py-3 space-y-2">
         <div
           className={cn(
             "flex items-center gap-2",
@@ -135,6 +135,21 @@ export function Sidebar({ activeItem = "home", collapsed = false, onToggleCollap
             <NotificationDropdown />
           </div>
         </div>
+
+        {/* Sign out button */}
+        <Button
+          variant="ghost"
+          onClick={logout}
+          className={cn(
+            "w-full justify-start h-11 text-left font-normal text-red-600 hover:bg-red-50 hover:text-red-700",
+            collapsed ? "px-0 justify-center" : "gap-3 px-3",
+          )}
+        >
+          <LogOut className="h-5 w-5" />
+          {!collapsed && (
+            <span className="text-sm font-semibold">Sign out</span>
+          )}
+        </Button>
       </div>
     </aside>
   )

@@ -1,4 +1,4 @@
-import { ArrowBigUp, ExternalLink, Bookmark, BookmarkCheck } from "lucide-react"
+import { ArrowBigUp, ExternalLink, Bookmark, BookmarkCheck, Image as ImageIcon, FileText, Video, Link as LinkIcon } from "lucide-react"
 import { useNavigate } from "react-router-dom"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -46,7 +46,46 @@ export function ResourceCard({ resource, onVote, onSaveToCollection, isSaved = f
               <ExternalLink className="h-5 w-5 text-gray-400 flex-shrink-0" />
             </div>
             <p className="text-base text-gray-600 mt-1 leading-relaxed">{resource.summary}</p>
-        {resource.fileName && (
+            
+            {/* Media preview */}
+            {resource.media && (
+              <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-gray-500">
+                {(resource.media.images?.length || 0) > 0 && (
+                  <div className="flex items-center gap-1">
+                    <ImageIcon className="h-4 w-4" />
+                    <span>{resource.media.images?.length || 0} image{(resource.media.images?.length || 0) > 1 ? "s" : ""}</span>
+                  </div>
+                )}
+                {(() => {
+                  // Count files that are not images or videos
+                  if (!resource.media?.files || resource.media.files.length === 0) return null
+                  const imageUrls = new Set((resource.media.images || []).map(img => img.url))
+                  const videoUrls = new Set((resource.media.videos || []).map(vid => vid.url))
+                  const fileCount = resource.media.files.filter(f => !imageUrls.has(f.url) && !videoUrls.has(f.url)).length
+                  if (fileCount === 0) return null
+                  return (
+                    <div className="flex items-center gap-1">
+                      <FileText className="h-4 w-4" />
+                      <span>{fileCount} file{fileCount > 1 ? "s" : ""}</span>
+                    </div>
+                  )
+                })()}
+                {(resource.media.videos?.length || 0) > 0 && (
+                  <div className="flex items-center gap-1">
+                    <Video className="h-4 w-4" />
+                    <span>{resource.media.videos?.length || 0} video{(resource.media.videos?.length || 0) > 1 ? "s" : ""}</span>
+                  </div>
+                )}
+                {(resource.media.urls?.length || 0) > 0 && (
+                  <div className="flex items-center gap-1">
+                    <LinkIcon className="h-4 w-4" />
+                    <span>{resource.media.urls?.length || 0} link{(resource.media.urls?.length || 0) > 1 ? "s" : ""}</span>
+                  </div>
+                )}
+              </div>
+            )}
+            
+            {!resource.media && resource.fileName && (
               <p className="text-sm text-gray-500 mt-2">Attached file: {resource.fileName}</p>
         )}
           </div>
@@ -100,7 +139,7 @@ export function ResourceCard({ resource, onVote, onSaveToCollection, isSaved = f
           <Badge className="bg-[#036aff]/10 text-[#036aff] text-xs font-semibold px-2.5 py-1">
             {resource.courseCode}
           </Badge>
-          {resource.tags.slice(0, 3).map((tag) => (
+          {(resource.tags || []).slice(0, 3).map((tag) => (
             <Badge
               key={tag}
               variant="outline"
@@ -109,12 +148,12 @@ export function ResourceCard({ resource, onVote, onSaveToCollection, isSaved = f
               {tag.replace("-", " ")}
             </Badge>
           ))}
-          {resource.tags.length > 3 && (
+          {(resource.tags || []).length > 3 && (
             <Badge
               variant="outline"
               className="border-dashed border-gray-200 text-xs px-2.5 py-1 text-gray-500"
             >
-              +{resource.tags.length - 3} more
+              +{(resource.tags || []).length - 3} more
             </Badge>
           )}
           <Badge className="bg-[#036aff]/10 text-[#036aff] text-xs font-semibold capitalize px-2.5 py-1 ml-auto">

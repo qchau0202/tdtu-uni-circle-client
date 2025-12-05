@@ -20,6 +20,8 @@ import {
   List,
   Info,
   Sparkles,
+  Folder,
+  MoreVertical,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -40,6 +42,7 @@ import {
   deleteCollection,
   addItemToCollection,
   removeItemFromCollection,
+  updateCollectionItem,
   searchCollections,
   cloneCollection,
   type Collection,
@@ -53,7 +56,7 @@ const CollectionPage = () => {
   const navigate = useNavigate()
   const [collections, setCollections] = useState<Collection[]>([])
   const [searchResults, setSearchResults] = useState<Collection[]>([])
-  const [activeTab, setActiveTab] = useState<"my-collections" | "discover">("my-collections")
+  const [activeTab, setActiveTab] = useState<"my-collections" | "discover" | "bookmarks">("my-collections")
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid")
   const [resourceIndex, setResourceIndex] = useState<Record<string, (typeof resourceItems)[number]>>({})
   const [bookmarkedResources, setBookmarkedResources] = useState<(typeof resourceItems)[number][]>([])
@@ -87,6 +90,10 @@ const CollectionPage = () => {
   const [itemPrivateNote, setItemPrivateNote] = useState("")
   const [resourceSearchQuery, setResourceSearchQuery] = useState("")
   const [selectedResourceId, setSelectedResourceId] = useState<string | null>(null)
+  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null)
+  const [selectedCommentId, setSelectedCommentId] = useState<string | null>(null)
+  const [editingItemId, setEditingItemId] = useState<string | null>(null)
+  const [editingItemNote, setEditingItemNote] = useState("")
   const quickTagPresets = ["midterm", "final", "labs", "project", "reference", "notes"]
   const quickTemplates = [
     {
@@ -109,6 +116,14 @@ const CollectionPage = () => {
       loadBookmarkData()
     }
   }, [user])
+
+  // Reset selections when item type changes
+  useEffect(() => {
+    setSelectedResourceId(null)
+    setSelectedThreadId(null)
+    setSelectedCommentId(null)
+    setResourceSearchQuery("")
+  }, [itemType])
 
   // Build quick lookup for resources used in collection detail view
   useEffect(() => {
@@ -333,16 +348,38 @@ const CollectionPage = () => {
       return
     }
 
-    if (itemType !== "EXTERNAL" && itemType !== "RESOURCE" && !itemReferenceId.trim()) {
+    if (itemType === "THREAD" && !selectedThreadId) {
+      toast.error("Please select a thread")
+      return
+    }
+
+    if (itemType === "COMMENT" && !selectedCommentId) {
+      toast.error("Please select a comment")
+      return
+    }
+
+    if (itemType !== "EXTERNAL" && itemType !== "RESOURCE" && itemType !== "THREAD" && itemType !== "COMMENT" && !itemReferenceId.trim()) {
       toast.error("Reference ID is required")
       return
     }
 
     try {
       setLoading(true)
+      let referenceId: string | undefined
+      
+      if (itemType === "RESOURCE") {
+        referenceId = selectedResourceId || undefined
+      } else if (itemType === "THREAD") {
+        referenceId = selectedThreadId || undefined
+      } else if (itemType === "COMMENT") {
+        referenceId = selectedCommentId || undefined
+      } else if (itemType !== "EXTERNAL") {
+        referenceId = itemReferenceId || undefined
+      }
+
       addItemToCollection(selectedCollection.id, user.id, {
         type: itemType,
-        reference_id: itemType === "RESOURCE" ? (selectedResourceId || undefined) : (itemType !== "EXTERNAL" ? itemReferenceId : undefined),
+        reference_id: referenceId,
         url: itemType === "EXTERNAL" ? itemUrl : undefined,
         private_note: itemPrivateNote || undefined,
       })
@@ -367,6 +404,10 @@ const CollectionPage = () => {
       setLoading(true)
       removeItemFromCollection(item.id, user.id)
       loadMyCollections()
+      if (selectedCollection) {
+        const fullCollection = getCollectionById(selectedCollection.id, user.id) || selectedCollection
+        setSelectedCollection(fullCollection)
+      }
       toast.success("Item removed")
     } catch (error) {
       toast.error("Failed to remove item", {
@@ -375,6 +416,39 @@ const CollectionPage = () => {
     } finally {
       setLoading(false)
     }
+  }
+
+  const handleEditItem = (item: CollectionItem) => {
+    setEditingItemId(item.id)
+    setEditingItemNote(item.private_note || "")
+  }
+
+  const handleSaveItemEdit = () => {
+    if (!user || !editingItemId) return
+
+    try {
+      setLoading(true)
+      updateCollectionItem(editingItemId, user.id, editingItemNote)
+      loadMyCollections()
+      if (selectedCollection) {
+        const fullCollection = getCollectionById(selectedCollection.id, user.id) || selectedCollection
+        setSelectedCollection(fullCollection)
+      }
+      setEditingItemId(null)
+      setEditingItemNote("")
+      toast.success("Item updated successfully")
+    } catch (error) {
+      toast.error("Failed to update item", {
+        description: error instanceof Error ? error.message : "Unknown error",
+      })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleCancelItemEdit = () => {
+    setEditingItemId(null)
+    setEditingItemNote("")
   }
 
   const handleCloneCollection = (collection: Collection) => {
@@ -442,15 +516,39 @@ const CollectionPage = () => {
     setItemPrivateNote("")
     setResourceSearchQuery("")
     setSelectedResourceId(null)
+    setSelectedThreadId(null)
+    setSelectedCommentId(null)
+    setEditingItemId(null)
+    setEditingItemNote("")
   }
 
-  const filteredResources = resourceItems.filter((resource) => {
+  const filteredBookmarkedResourcesForAdd = bookmarkedResources.filter((resource) => {
     if (!resourceSearchQuery) return true
     const query = resourceSearchQuery.toLowerCase()
     return (
       resource.title.toLowerCase().includes(query) ||
       resource.courseCode.includes(query) ||
       resource.summary.toLowerCase().includes(query)
+    )
+  })
+
+  const filteredLikedThreadsForAdd = likedThreads.filter((thread) => {
+    if (!resourceSearchQuery) return true
+    const query = resourceSearchQuery.toLowerCase()
+    return (
+      thread.title.toLowerCase().includes(query) ||
+      thread.content.toLowerCase().includes(query) ||
+      thread.author.name.toLowerCase().includes(query)
+    )
+  })
+
+  const filteredLikedCommentsForAdd = likedComments.filter(({ comment, thread }) => {
+    if (!resourceSearchQuery) return true
+    const query = resourceSearchQuery.toLowerCase()
+    return (
+      comment.text.toLowerCase().includes(query) ||
+      comment.author.toLowerCase().includes(query) ||
+      thread.title.toLowerCase().includes(query)
     )
   })
 
@@ -507,18 +605,28 @@ const CollectionPage = () => {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="space-y-2 max-w-2xl">
-          <h1 className="text-4xl font-bold text-[#141414]">Collections</h1>
+      {/* Header with search */}
+      <div className="space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <h1 className="text-3xl font-bold text-[#141414]">My Collections</h1>
+          <div className="flex items-center gap-3">
+            <Button
+              variant="outline"
+              className="border-gray-200 text-sm font-semibold text-[#141414] hover:bg-[#f5f5f5] px-4 py-2"
+              onClick={openCreateDialog}
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Create
+            </Button>
+            <Button
+              className="bg-[#036aff] text-white font-bold hover:bg-[#036aff]/90 text-sm px-5 py-2.5"
+              onClick={openCreateDialog}
+            >
+              <Plus className="h-5 w-5 mr-2" />
+              New Collection
+            </Button>
+          </div>
         </div>
-        <Button
-          className="bg-[#036aff] text-white font-bold hover:bg-[#036aff]/90 text-sm px-5 py-2.5"
-          onClick={openCreateDialog}
-        >
-          <Plus className="h-5 w-5 mr-2" />
-          New Collection
-        </Button>
       </div>
 
       {/* Tabs */}
@@ -561,159 +669,256 @@ const CollectionPage = () => {
 
         {/* My Collections Tab */}
         <TabsContent value="my-collections" className="mt-6">
-          <div className="grid gap-6">
-            <div className="space-y-4">
-              {loading && collections.length === 0 ? (
-                <div className="text-center py-12 text-gray-500 text-base">Loading...</div>
-              ) : collections.length === 0 ? (
-                <Card className="border border-gray-200 rounded-xl shadow-sm">
-                  <CardContent className="py-12 text-center">
-                    <Bookmark className="h-12 w-12 mx-auto text-gray-400 mb-4" />
-                    <p className="text-base text-gray-500 mb-4">No collections yet</p>
-                    <Button
-                      onClick={openCreateDialog}
-                      variant="outline"
-                      className="border-gray-200 text-sm font-bold text-[#141414] hover:bg-[#f5f5f5] px-5 py-2.5"
-                    >
-                      Create your first collection
-                    </Button>
-                  </CardContent>
-                </Card>
-              ) : (
-                <>
-                  {collections.length > 0 && (
-                    <div className="flex items-center justify-between mb-2">
-                      <p className="text-sm text-gray-500">
-                        {collections.length} collection{collections.length > 1 ? "s" : ""}
-                      </p>
-                      <div className="inline-flex rounded-full bg-[#f5f5f5] p-1 text-xs font-semibold">
-                        <button
-                          type="button"
-                          onClick={() => setViewMode("grid")}
-                          className={cn(
-                            "flex items-center gap-1 rounded-full px-3 py-1",
-                            viewMode === "grid"
-                              ? "bg-white text-[#141414] shadow-sm"
-                              : "text-gray-500"
-                          )}
-                        >
-                          <LayoutGrid className="h-3.5 w-3.5" />
-                          Grid
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setViewMode("list")}
-                          className={cn(
-                            "flex items-center gap-1 rounded-full px-3 py-1",
-                            viewMode === "list"
-                              ? "bg-white text-[#141414] shadow-sm"
-                              : "text-gray-500"
-                          )}
-                        >
-                          <List className="h-3.5 w-3.5" />
-                          List
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  <div
-                    className={
+          <div className="space-y-6">
+            {/* Toolbar */}
+            {collections.length > 0 && (
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-gray-600">
+                  {collections.length} {collections.length === 1 ? "collection" : "collections"}
+                </p>
+                <div className="inline-flex rounded-lg border border-gray-200 bg-white p-1">
+                  <button
+                    type="button"
+                    onClick={() => setViewMode("grid")}
+                    className={cn(
+                      "flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
                       viewMode === "grid"
-                        ? "grid gap-4 sm:grid-cols-2"
-                        : "space-y-4"
-                    }
+                        ? "bg-[#036aff] text-white shadow-sm"
+                        : "text-gray-600 hover:bg-gray-50"
+                    )}
                   >
-                    {collections.map((collection) => (
-                      <Card
-                        key={collection.id}
-                        className="border border-gray-200 rounded-xl shadow-sm hover:shadow-md transition-shadow h-full"
-                      >
-                        <CardContent className="p-5 space-y-4 flex flex-col h-full">
-                        <div className="flex flex-wrap items-start justify-between gap-3">
+                    <LayoutGrid className="h-4 w-4" />
+                    Grid
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewMode("list")}
+                    className={cn(
+                      "flex items-center gap-2 rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+                      viewMode === "list"
+                        ? "bg-[#036aff] text-white shadow-sm"
+                        : "text-gray-600 hover:bg-gray-50"
+                    )}
+                  >
+                    <List className="h-4 w-4" />
+                    List
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Content */}
+            {loading && collections.length === 0 ? (
+              <div className="text-center py-16">
+                <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-[#036aff] mb-4"></div>
+                <p className="text-base text-gray-500">Loading collections...</p>
+              </div>
+            ) : collections.length === 0 ? (
+              <Card className="border-2 border-dashed border-gray-200 rounded-xl">
+                <CardContent className="py-16 text-center">
+                  <div className="w-20 h-20 rounded-full bg-gradient-to-br from-[#036aff]/10 to-[#036aff]/5 flex items-center justify-center mx-auto mb-6">
+                    <Folder className="h-10 w-10 text-[#036aff]" />
+                  </div>
+                  <h3 className="text-xl font-semibold text-[#141414] mb-2">No collections yet</h3>
+                  <p className="text-base text-gray-500 mb-6 max-w-md mx-auto">
+                    Create your first collection to organize resources, threads, and links in one place.
+                  </p>
+                  <Button
+                    onClick={openCreateDialog}
+                    className="bg-[#036aff] text-white font-semibold hover:bg-[#036aff]/90 px-6 py-2.5"
+                  >
+                    <Plus className="h-5 w-5 mr-2" />
+                    Create Your First Collection
+                  </Button>
+                </CardContent>
+              </Card>
+            ) : viewMode === "grid" ? (
+              <div className="grid gap-5 sm:grid-cols-2">
+                {collections.map((collection) => {
+                  const itemCount = collection.collection_items?.length || 0
+                  const getCollectionColor = () => {
+                    const colors = [
+                      "bg-purple-50 text-purple-600",
+                      "bg-blue-50 text-blue-600",
+                      "bg-green-50 text-green-600",
+                      "bg-orange-50 text-orange-600",
+                      "bg-pink-50 text-pink-600",
+                      "bg-indigo-50 text-indigo-600",
+                    ]
+                    return colors[collection.name.length % colors.length]
+                  }
+                  
+                  return (
+                    <Card
+                      key={collection.id}
+                      className="group border border-gray-200 rounded-xl shadow-sm hover:shadow-lg transition-all duration-200 cursor-pointer overflow-hidden"
+                      onClick={() => openViewDialog(collection)}
+                    >
+                      <CardContent className="p-6">
+                        <div className="flex items-start justify-between gap-4 mb-4">
+                          <div className={cn("p-3 rounded-xl", getCollectionColor())}>
+                            <Folder className="h-8 w-8" />
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <Badge
+                              variant="outline"
+                              className={cn(
+                                "text-xs px-2.5 py-1 border",
+                                collection.visibility === "PUBLIC"
+                                  ? "border-green-200 text-green-700 bg-green-50"
+                                  : "border-gray-200 text-gray-600 bg-gray-50"
+                              )}
+                            >
+                              {collection.visibility === "PUBLIC" ? (
+                                <Globe2 className="h-3 w-3 mr-1" />
+                              ) : (
+                                <Lock className="h-3 w-3 mr-1" />
+                              )}
+                              {collection.visibility}
+                            </Badge>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                openEditDialog(collection)
+                              }}
+                            >
+                              <MoreVertical className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </div>
+
+                        <h3 className="text-lg font-semibold text-[#141414] mb-2 line-clamp-1">
+                          {collection.name}
+                        </h3>
+                        
+                        {collection.description && (
+                          <p className="text-sm text-gray-600 line-clamp-2 mb-4 leading-relaxed">
+                            {collection.description}
+                          </p>
+                        )}
+
+                        <div className="space-y-3 pt-4 border-t border-gray-100">
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-gray-500">Items</span>
+                            <span className="font-semibold text-[#141414]">{itemCount}</span>
+                          </div>
+                          
+                          {collection.tags && collection.tags.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5">
+                              {collection.tags.slice(0, 3).map((tag) => (
+                                <Badge
+                                  key={tag}
+                                  variant="outline"
+                                  className="border-gray-200 text-xs px-2 py-0.5 capitalize bg-white"
+                                >
+                                  {tag}
+                                </Badge>
+                              ))}
+                              {collection.tags.length > 3 && (
+                                <Badge
+                                  variant="outline"
+                                  className="border-gray-200 text-xs px-2 py-0.5 bg-white"
+                                >
+                                  +{collection.tags.length - 3}
+                                </Badge>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )
+                })}
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {collections.map((collection) => {
+                  const itemCount = collection.collection_items?.length || 0
+                  return (
+                    <Card
+                      key={collection.id}
+                      className="group border border-gray-200 rounded-lg hover:shadow-md transition-shadow cursor-pointer"
+                      onClick={() => openViewDialog(collection)}
+                    >
+                      <CardContent className="p-4">
+                        <div className="flex items-center gap-4">
+                          <div className="p-2.5 rounded-lg bg-purple-50">
+                            <Folder className="h-6 w-6 text-purple-600" />
+                          </div>
+                          
                           <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 mb-2">
-                              <h3 className="text-lg font-semibold text-[#141414] truncate">
+                            <div className="flex items-center gap-3 mb-1">
+                              <h3 className="text-base font-semibold text-[#141414] truncate">
                                 {collection.name}
                               </h3>
                               <Badge
                                 variant="outline"
                                 className={cn(
-                                  "border-gray-200 text-sm px-2.5 py-1",
+                                  "text-xs px-2 py-0.5 border shrink-0",
                                   collection.visibility === "PUBLIC"
-                                    ? "border-green-200 text-green-700"
-                                    : ""
+                                    ? "border-green-200 text-green-700 bg-green-50"
+                                    : "border-gray-200 text-gray-600 bg-gray-50"
                                 )}
                               >
                                 {collection.visibility === "PUBLIC" ? (
-                                  <Globe2 className="h-4 w-4 mr-1" />
+                                  <Globe2 className="h-3 w-3 mr-1" />
                                 ) : (
-                                  <Lock className="h-4 w-4 mr-1" />
+                                  <Lock className="h-3 w-3 mr-1" />
                                 )}
                                 {collection.visibility}
                               </Badge>
                             </div>
+                            
                             {collection.description && (
-                              <p className="text-base text-gray-600 line-clamp-2 leading-relaxed">
+                              <p className="text-sm text-gray-600 line-clamp-1 mb-2">
                                 {collection.description}
                               </p>
                             )}
-                          </div>
-                        </div>
-
-                        <div className="mt-auto space-y-3">
-                          <div className="flex flex-wrap items-center gap-2 text-sm text-gray-500">
-                            <span className="font-semibold text-[#141414]">
-                              {collection.collection_items?.length || 0} items
-                            </span>
-                            {collection.tags && collection.tags.length > 0 && (
-                              <>
-                                <span>·</span>
-                                <div className="flex gap-1.5 flex-wrap">
-                                  {collection.tags.slice(0, 3).map((tag) => (
-                                    <Badge
-                                      key={tag}
-                                      variant="outline"
-                                      className="border-gray-200 text-sm capitalize px-2.5 py-1"
-                                    >
-                                      {tag}
-                                    </Badge>
-                                  ))}
-                                  {collection.tags.length > 3 && (
-                                    <Badge
-                                      variant="outline"
-                                      className="border-gray-200 text-sm px-2.5 py-1"
-                                    >
-                                      +{collection.tags.length - 3}
-                                    </Badge>
-                                  )}
-                                </div>
-                              </>
-                            )}
+                            
+                            <div className="flex items-center gap-4 text-xs text-gray-500">
+                              <span className="font-medium text-[#141414]">{itemCount} items</span>
+                              {collection.tags && collection.tags.length > 0 && (
+                                <>
+                                  <span>·</span>
+                                  <div className="flex gap-1.5 flex-wrap">
+                                    {collection.tags.slice(0, 3).map((tag) => (
+                                      <Badge
+                                        key={tag}
+                                        variant="outline"
+                                        className="border-gray-200 text-xs px-1.5 py-0 capitalize"
+                                      >
+                                        {tag}
+                                      </Badge>
+                                    ))}
+                                  </div>
+                                </>
+                              )}
+                            </div>
                           </div>
 
-                          <div className="flex gap-2 pt-1">
+                          <div className="flex items-center gap-2 shrink-0">
                             <Button
-                              variant="outline"
+                              variant="ghost"
                               size="sm"
-                              className="flex-1 border-gray-200 text-sm font-bold text-[#141414] hover:bg-[#f5f5f5] px-4 py-2"
-                              onClick={() => openViewDialog(collection)}
-                            >
-                              View
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="border-gray-200 text-sm font-bold text-[#141414] hover:bg-[#f5f5f5] px-4 py-2"
-                              onClick={() => openEditDialog(collection)}
+                              className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                openEditDialog(collection)
+                              }}
                             >
                               <Edit className="h-4 w-4" />
                             </Button>
                             <Button
-                              variant="outline"
+                              variant="ghost"
                               size="sm"
-                              className="border-gray-200 text-sm font-bold text-[#141414] hover:bg-[#f5f5f5] px-4 py-2"
-                              onClick={() => handleDeleteCollection(collection)}
+                              className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 transition-opacity text-red-600 hover:text-red-700 hover:bg-red-50"
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                handleDeleteCollection(collection)
+                              }}
                             >
                               <Trash2 className="h-4 w-4" />
                             </Button>
@@ -721,251 +926,286 @@ const CollectionPage = () => {
                         </div>
                       </CardContent>
                     </Card>
-                  ))}
-                  </div>
-                </>
-              )}
-            </div>
+                  )
+                })}
+              </div>
+            )}
           </div>
         </TabsContent>
 
         {/* Discover Tab */}
         <TabsContent value="discover" className="mt-6">
-          <div className="grid gap-6 lg:grid-cols-[minmax(0,0.65fr)_minmax(220px,0.35fr)]">
-            <div className="space-y-4">
-              <div className="flex gap-2">
-                <Input
-                  placeholder="Search collections by name or tag..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  onKeyPress={(e) => e.key === "Enter" && handleSearch()}
-                  className="flex-1 border-gray-200 text-base h-12"
-                />
-                <Button
-                  onClick={handleSearch}
-                  className="bg-[#036aff] text-white font-bold hover:bg-[#036aff]/90 text-sm px-5 py-2.5"
-                >
-                  <Search className="h-5 w-5 mr-2" />
-                  Search
-                </Button>
+          <div className="space-y-6">
+            {/* Search Bar */}
+            <div className="relative">
+              <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+              <Input
+                placeholder="Search collections by name or tag..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyPress={(e) => e.key === "Enter" && handleSearch()}
+                className="pl-11 pr-4 border-gray-200 text-base h-12 rounded-lg"
+              />
+            </div>
+
+            {loading && searchResults.length === 0 && searchQuery ? (
+              <div className="text-center py-16">
+                <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-[#036aff] mb-4"></div>
+                <p className="text-base text-gray-500">Searching collections...</p>
               </div>
-
-              {loading && searchResults.length === 0 && searchQuery ? (
-                <div className="text-center py-12 text-gray-500 text-base">Searching...</div>
-              ) : searchResults.length === 0 && searchQuery ? (
-                <Card className="border border-gray-200 rounded-xl shadow-sm">
-                  <CardContent className="py-12 text-center text-base text-gray-500">
-                    No collections found
-                  </CardContent>
-                </Card>
-              ) : (
-                <div className="space-y-4">
-                  {searchResults.map((collection) => (
-                    <Card key={collection.id} className="border border-gray-200 rounded-xl shadow-sm">
-                      <CardContent className="p-5 space-y-4">
-                        <div className="flex flex-wrap items-start justify-between gap-3">
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 mb-2">
-                              <h3 className="text-lg font-semibold text-[#141414] truncate">
-                                {collection.name}
-                              </h3>
-                              <Badge variant="outline" className="border-green-200 text-green-700 text-sm px-2.5 py-1">
-                                <Globe2 className="h-4 w-4 mr-1" />
-                                PUBLIC
-                              </Badge>
-                            </div>
-                            {collection.description && (
-                              <p className="text-base text-gray-600 line-clamp-2 leading-relaxed">{collection.description}</p>
-                            )}
+            ) : searchResults.length === 0 && searchQuery ? (
+              <Card className="border-2 border-dashed border-gray-200 rounded-xl">
+                <CardContent className="py-16 text-center">
+                  <div className="w-20 h-20 rounded-full bg-gradient-to-br from-gray-100 to-gray-50 flex items-center justify-center mx-auto mb-6">
+                    <Search className="h-10 w-10 text-gray-400" />
+                  </div>
+                  <h3 className="text-xl font-semibold text-[#141414] mb-2">No collections found</h3>
+                  <p className="text-base text-gray-500 max-w-md mx-auto">
+                    Try different keywords or tags to find public collections shared by other students.
+                  </p>
+                </CardContent>
+              </Card>
+            ) : searchResults.length > 0 ? (
+              <div className="grid gap-5 sm:grid-cols-2">
+                {searchResults.map((collection) => {
+                  const itemCount = collection.collection_items?.length || 0
+                  return (
+                    <Card
+                      key={collection.id}
+                      className="group border border-gray-200 rounded-xl shadow-sm hover:shadow-lg transition-all duration-200"
+                    >
+                      <CardContent className="p-6">
+                        <div className="flex items-start justify-between gap-4 mb-4">
+                          <div className="p-3 rounded-xl bg-blue-50">
+                            <Folder className="h-8 w-8 text-blue-600" />
                           </div>
+                          <Badge variant="outline" className="border-green-200 text-green-700 bg-green-50 text-xs px-2.5 py-1">
+                            <Globe2 className="h-3 w-3 mr-1" />
+                            PUBLIC
+                          </Badge>
                         </div>
 
-                        <div className="flex flex-wrap items-center gap-2 text-sm text-gray-500">
-                          <span className="font-semibold text-[#141414]">
-                            {collection.collection_items?.length || 0} items
-                          </span>
+                        <h3 className="text-lg font-semibold text-[#141414] mb-2 line-clamp-1">
+                          {collection.name}
+                        </h3>
+                        
+                        {collection.description && (
+                          <p className="text-sm text-gray-600 line-clamp-2 mb-4 leading-relaxed">
+                            {collection.description}
+                          </p>
+                        )}
+
+                        <div className="space-y-3 pt-4 border-t border-gray-100">
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-gray-500">Items</span>
+                            <span className="font-semibold text-[#141414]">{itemCount}</span>
+                          </div>
+                          
                           {collection.tags && collection.tags.length > 0 && (
-                            <>
-                              <span>·</span>
-                              <div className="flex gap-1.5 flex-wrap">
-                                {collection.tags.slice(0, 3).map((tag) => (
-                                  <Badge key={tag} variant="outline" className="border-gray-200 text-sm capitalize px-2.5 py-1">
-                                    {tag}
-                                  </Badge>
-                                ))}
-                              </div>
-                            </>
+                            <div className="flex flex-wrap gap-1.5">
+                              {collection.tags.slice(0, 3).map((tag) => (
+                                <Badge
+                                  key={tag}
+                                  variant="outline"
+                                  className="border-gray-200 text-xs px-2 py-0.5 capitalize bg-white"
+                                >
+                                  {tag}
+                                </Badge>
+                              ))}
+                            </div>
                           )}
-                        </div>
 
-                        <div className="flex gap-2 pt-1">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="flex-1 border-gray-200 text-sm font-bold text-[#141414] hover:bg-[#f5f5f5] px-4 py-2"
-                            onClick={() => openViewDialog(collection)}
-                          >
-                            View
-                          </Button>
-                          {collection.visibility === "PUBLIC" && (
+                          <div className="flex gap-2 pt-2">
                             <Button
                               variant="outline"
                               size="sm"
-                              className="border-gray-200 text-sm font-bold text-[#141414] hover:bg-[#f5f5f5] px-4 py-2"
+                              className="flex-1 border-gray-200 text-sm font-semibold text-[#141414] hover:bg-gray-50"
+                              onClick={() => openViewDialog(collection)}
+                            >
+                              View Details
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="border-[#036aff] text-[#036aff] hover:bg-[#036aff]/10 text-sm font-semibold"
                               onClick={() => handleCloneCollection(collection)}
                             >
                               <Copy className="h-4 w-4 mr-1" />
                               Clone
                             </Button>
-                          )}
+                          </div>
                         </div>
                       </CardContent>
                     </Card>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div className="space-y-4">
+                  )
+                })}
+              </div>
+            ) : (
               <Card className="border border-gray-200 rounded-xl shadow-sm">
-                <CardContent className="p-5 space-y-4">
-                  <div>
-                    <h3 className="text-base font-semibold text-[#141414] mb-2">Search tips</h3>
-                    <p className="text-sm text-gray-500 leading-relaxed">
-                      Search by collection name or tags to find public collections shared by other students.
-                    </p>
+                <CardContent className="p-6">
+                  <div className="flex items-start gap-4">
+                    <div className="p-3 rounded-lg bg-blue-50">
+                      <Info className="h-6 w-6 text-blue-600" />
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="text-base font-semibold text-[#141414] mb-2">Discover Public Collections</h3>
+                      <p className="text-sm text-gray-600 leading-relaxed mb-4">
+                        Search by collection name or tags to find public collections shared by other students.
+                      </p>
+                      <ul className="list-disc pl-5 text-sm text-gray-600 space-y-1.5">
+                        <li>Use tags like "Java" or "Web Dev" to find specific topics</li>
+                        <li>Clone public collections to customize them for your needs</li>
+                        <li>Private collections are only visible to their owners</li>
+                      </ul>
+                    </div>
                   </div>
-                  <ul className="list-disc pl-5 text-sm text-gray-600 space-y-2">
-                    <li>Use tags like "Java" or "Web Dev" to find specific topics.</li>
-                    <li>Clone public collections to customize them for your needs.</li>
-                    <li>Private collections are only visible to their owners.</li>
-                  </ul>
                 </CardContent>
               </Card>
-            </div>
+            )}
           </div>
         </TabsContent>
 
         {/* Bookmarks Tab */}
         <TabsContent value="bookmarks" className="mt-6">
-          <div className="space-y-5">
-            <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="space-y-6">
+            {/* Header */}
+            <div className="flex flex-wrap items-center justify-between gap-4">
               <div>
-                <h3 className="text-xl font-semibold text-[#141414]">Your saved items</h3>
-                <p className="text-sm text-gray-500">Resources you bookmarked, threads and comments you liked.</p>
+                <h2 className="text-2xl font-bold text-[#141414] mb-1">Your Bookmarks</h2>
+                <p className="text-sm text-gray-600">
+                  Resources you bookmarked, threads and comments you liked
+                </p>
               </div>
-              <div className="flex flex-wrap items-center gap-2 text-sm text-gray-500">
-                <Bookmark className="h-4 w-4" />
-                <span>
-                  {bookmarkedResources.length} resources · {likedThreads.length} threads · {likedComments.length} comments
+              <div className="flex items-center gap-2 px-4 py-2 bg-gray-50 rounded-lg border border-gray-200">
+                <Bookmark className="h-4 w-4 text-[#036aff]" />
+                <span className="text-sm font-semibold text-[#141414]">
+                  {bookmarkedResources.length + likedThreads.length + likedComments.length} total
                 </span>
               </div>
             </div>
 
-            <div className="flex flex-wrap gap-3 items-center">
-              <Input
-                value={bookmarkSearch}
-                onChange={(e) => setBookmarkSearch(e.target.value)}
-                placeholder="Search saved items..."
-                className="w-full sm:w-72 border-gray-200 text-sm"
-              />
-              <div className="flex flex-wrap gap-2 text-xs font-semibold">
+            {/* Search and Filters */}
+            <div className="space-y-4">
+              <div className="relative">
+                <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+                <Input
+                  value={bookmarkSearch}
+                  onChange={(e) => setBookmarkSearch(e.target.value)}
+                  placeholder="Search saved items..."
+                  className="pl-11 pr-4 border-gray-200 text-base h-12 rounded-lg"
+                />
+              </div>
+              
+              <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
                   onClick={() => toggleBookmarkFilter("resources")}
                   className={cn(
-                    "rounded-full px-3 py-1 border",
+                    "rounded-lg px-4 py-2 text-sm font-semibold border transition-colors",
                     bookmarkFilters.resources
                       ? "border-[#036aff] bg-[#036aff]/10 text-[#036aff]"
-                      : "border-gray-200 text-gray-600 hover:border-gray-300"
+                      : "border-gray-200 text-gray-600 hover:border-gray-300 hover:bg-gray-50"
                   )}
                 >
-                  Resources
+                  <FileText className="h-4 w-4 inline mr-2" />
+                  Resources ({bookmarkedResources.length})
                 </button>
                 <button
                   type="button"
                   onClick={() => toggleBookmarkFilter("threads")}
                   className={cn(
-                    "rounded-full px-3 py-1 border",
+                    "rounded-lg px-4 py-2 text-sm font-semibold border transition-colors",
                     bookmarkFilters.threads
                       ? "border-[#036aff] bg-[#036aff]/10 text-[#036aff]"
-                      : "border-gray-200 text-gray-600 hover:border-gray-300"
+                      : "border-gray-200 text-gray-600 hover:border-gray-300 hover:bg-gray-50"
                   )}
                 >
-                  Threads
+                  <MessageSquare className="h-4 w-4 inline mr-2" />
+                  Threads ({likedThreads.length})
                 </button>
                 <button
                   type="button"
                   onClick={() => toggleBookmarkFilter("comments")}
                   className={cn(
-                    "rounded-full px-3 py-1 border",
+                    "rounded-lg px-4 py-2 text-sm font-semibold border transition-colors",
                     bookmarkFilters.comments
                       ? "border-[#036aff] bg-[#036aff]/10 text-[#036aff]"
-                      : "border-gray-200 text-gray-600 hover:border-gray-300"
+                      : "border-gray-200 text-gray-600 hover:border-gray-300 hover:bg-gray-50"
                   )}
                 >
-                  Comments
+                  <MessageCircle className="h-4 w-4 inline mr-2" />
+                  Comments ({likedComments.length})
                 </button>
               </div>
             </div>
 
             {filteredBookmarkedResources.length === 0 && filteredLikedThreads.length === 0 && filteredLikedComments.length === 0 ? (
-              <Card className="border border-gray-200 rounded-xl shadow-sm">
-                <CardContent className="py-10 text-center space-y-3">
-                  <Bookmark className="h-10 w-10 text-gray-400 mx-auto" />
-                  <p className="text-base text-gray-600">No items match these filters.</p>
-                  <p className="text-sm text-gray-500">
-                    Adjust filters or clear the search to see more.
+              <Card className="border-2 border-dashed border-gray-200 rounded-xl">
+                <CardContent className="py-16 text-center">
+                  <div className="w-20 h-20 rounded-full bg-gradient-to-br from-[#036aff]/10 to-[#036aff]/5 flex items-center justify-center mx-auto mb-6">
+                    <Bookmark className="h-10 w-10 text-[#036aff]" />
+                  </div>
+                  <h3 className="text-xl font-semibold text-[#141414] mb-2">No items found</h3>
+                  <p className="text-base text-gray-500 max-w-md mx-auto">
+                    {bookmarkSearch ? "Try adjusting your search or filters to see more results." : "Start bookmarking resources and liking threads to see them here."}
                   </p>
                 </CardContent>
               </Card>
             ) : (
-              <div
-                className={cn(
-                  "grid gap-5",
-                  [bookmarkFilters.resources, bookmarkFilters.threads, bookmarkFilters.comments].filter(Boolean).length === 1
-                    ? "grid-cols-1"
-                    : [bookmarkFilters.resources, bookmarkFilters.threads, bookmarkFilters.comments].filter(Boolean).length === 2
-                      ? "lg:grid-cols-2"
-                      : "lg:grid-cols-3"
-                )}
-              >
+              <div className="space-y-6">
                 {bookmarkFilters.resources && (
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-2">
-                      <Bookmark className="h-4 w-4 text-[#036aff]" />
-                      <p className="text-sm font-semibold text-[#141414]">Bookmarked resources</p>
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-lg bg-blue-50">
+                        <FileText className="h-5 w-5 text-blue-600" />
+                      </div>
+                      <div>
+                        <h3 className="text-lg font-semibold text-[#141414]">Bookmarked Resources</h3>
+                        <p className="text-sm text-gray-500">{filteredBookmarkedResources.length} {filteredBookmarkedResources.length === 1 ? "item" : "items"}</p>
+                      </div>
                     </div>
                     {filteredBookmarkedResources.length === 0 ? (
-                      <Card className="border border-gray-200 rounded-xl shadow-sm">
-                        <CardContent className="py-6 text-center text-sm text-gray-500">Nothing here with current filters.</CardContent>
+                      <Card className="border border-gray-200 rounded-lg">
+                        <CardContent className="py-8 text-center text-sm text-gray-500">
+                          No resources match your current filters.
+                        </CardContent>
                       </Card>
                     ) : (
-                      <div className="space-y-3">
+                      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                         {filteredBookmarkedResources.map((res) => (
-                          <Card key={res.id} className="border border-gray-200 rounded-xl shadow-sm hover:shadow-md transition cursor-pointer" onClick={() => navigate(`/resource/${res.id}`)}>
-                            <CardContent className="p-4 space-y-2">
-                              <div className="flex items-start justify-between gap-2">
-                                <div className="min-w-0">
-                                  <h4 className="text-sm font-semibold text-[#141414] truncate">{res.title}</h4>
-                                  <p className="text-xs text-gray-500 line-clamp-2">{res.summary}</p>
+                          <Card 
+                            key={res.id} 
+                            className="group border border-gray-200 rounded-lg shadow-sm hover:shadow-md transition-all cursor-pointer"
+                            onClick={() => navigate(`/resource/${res.id}`)}
+                          >
+                            <CardContent className="p-4">
+                              <div className="flex items-start gap-3 mb-3">
+                                <div className="p-2 rounded-lg bg-orange-50">
+                                  <FileText className="h-5 w-5 text-orange-600" />
                                 </div>
-                                <Badge variant="outline" className="border-gray-200 text-[11px] px-2 py-0.5">
+                                <Badge variant="outline" className="border-gray-200 text-xs px-2 py-0.5 ml-auto">
                                   {res.type === "document" ? "Document" : "Link"}
                                 </Badge>
                               </div>
-                              <div className="flex items-center gap-2 text-[11px] text-gray-500">
+                              <h4 className="text-sm font-semibold text-[#141414] mb-2 line-clamp-2">{res.title}</h4>
+                              <p className="text-xs text-gray-600 line-clamp-2 mb-3">{res.summary}</p>
+                              <div className="flex items-center gap-2 text-xs text-gray-500 mb-2">
                                 <span>{res.courseCode}</span>
                                 <span>·</span>
                                 <span>{res.contributor}</span>
                               </div>
                               {res.tags?.length > 0 && (
                                 <div className="flex flex-wrap gap-1.5">
-                                  {res.tags.slice(0, 3).map((tag) => (
-                                    <Badge key={tag} variant="outline" className="border-gray-200 text-[11px] px-2 py-0.5">
-                                      #{tag}
+                                  {res.tags.slice(0, 2).map((tag) => (
+                                    <Badge key={tag} variant="outline" className="border-gray-200 text-xs px-1.5 py-0.5">
+                                      {tag}
                                     </Badge>
                                   ))}
+                                  {res.tags.length > 2 && (
+                                    <Badge variant="outline" className="border-gray-200 text-xs px-1.5 py-0.5">
+                                      +{res.tags.length - 2}
+                                    </Badge>
+                                  )}
                                 </div>
                               )}
                             </CardContent>
@@ -977,30 +1217,47 @@ const CollectionPage = () => {
                 )}
 
                 {bookmarkFilters.threads && (
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-2">
-                      <MessageSquare className="h-4 w-4 text-[#036aff]" />
-                      <p className="text-sm font-semibold text-[#141414]">Liked threads</p>
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-lg bg-green-50">
+                        <MessageSquare className="h-5 w-5 text-green-600" />
+                      </div>
+                      <div>
+                        <h3 className="text-lg font-semibold text-[#141414]">Liked Threads</h3>
+                        <p className="text-sm text-gray-500">{filteredLikedThreads.length} {filteredLikedThreads.length === 1 ? "item" : "items"}</p>
+                      </div>
                     </div>
                     {filteredLikedThreads.length === 0 ? (
-                      <Card className="border border-gray-200 rounded-xl shadow-sm">
-                        <CardContent className="py-6 text-center text-sm text-gray-500">No liked threads with current filters.</CardContent>
+                      <Card className="border border-gray-200 rounded-lg">
+                        <CardContent className="py-8 text-center text-sm text-gray-500">
+                          No threads match your current filters.
+                        </CardContent>
                       </Card>
                     ) : (
-                      <div className="space-y-3">
+                      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                         {filteredLikedThreads.map((thread) => (
-                          <Card key={thread.id} className="border border-gray-200 rounded-xl shadow-sm hover:shadow-md transition cursor-pointer" onClick={() => navigate(`/feed/${thread.id}`)}>
-                            <CardContent className="p-4 space-y-2">
-                              <div className="flex items-center gap-2 text-[11px] text-gray-500">
+                          <Card 
+                            key={thread.id} 
+                            className="group border border-gray-200 rounded-lg shadow-sm hover:shadow-md transition-all cursor-pointer"
+                            onClick={() => navigate(`/feed/${thread.id}`)}
+                          >
+                            <CardContent className="p-4">
+                              <div className="flex items-start gap-3 mb-3">
+                                <div className="p-2 rounded-lg bg-green-50">
+                                  <MessageSquare className="h-5 w-5 text-green-600" />
+                                </div>
+                                <Badge variant="outline" className="border-gray-200 text-xs px-2 py-0.5 ml-auto">
+                                  {thread.threadType}
+                                </Badge>
+                              </div>
+                              <div className="flex items-center gap-2 text-xs text-gray-500 mb-2">
                                 <span>{thread.author.name}</span>
                                 <span>·</span>
                                 <span>{thread.createdAt}</span>
-                                <span>·</span>
-                                <span>{thread.threadType}</span>
                               </div>
-                              <h4 className="text-sm font-semibold text-[#141414] line-clamp-2">{thread.title}</h4>
-                              <p className="text-xs text-gray-600 line-clamp-2">{thread.content}</p>
-                              <div className="flex items-center gap-3 text-[11px] text-gray-500">
+                              <h4 className="text-sm font-semibold text-[#141414] mb-2 line-clamp-2">{thread.title}</h4>
+                              <p className="text-xs text-gray-600 line-clamp-2 mb-3">{thread.content}</p>
+                              <div className="flex items-center gap-4 text-xs text-gray-500">
                                 <span className="flex items-center gap-1">
                                   <MessageCircle className="h-3.5 w-3.5" /> {thread.stats.comments}
                                 </span>
@@ -1017,28 +1274,46 @@ const CollectionPage = () => {
                 )}
 
                 {bookmarkFilters.comments && (
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-2">
-                      <MessageCircle className="h-4 w-4 text-[#036aff]" />
-                      <p className="text-sm font-semibold text-[#141414]">Liked comments</p>
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-lg bg-purple-50">
+                        <MessageCircle className="h-5 w-5 text-purple-600" />
+                      </div>
+                      <div>
+                        <h3 className="text-lg font-semibold text-[#141414]">Liked Comments</h3>
+                        <p className="text-sm text-gray-500">{filteredLikedComments.length} {filteredLikedComments.length === 1 ? "item" : "items"}</p>
+                      </div>
                     </div>
                     {filteredLikedComments.length === 0 ? (
-                      <Card className="border border-gray-200 rounded-xl shadow-sm">
-                        <CardContent className="py-6 text-center text-sm text-gray-500">No liked comments with current filters.</CardContent>
+                      <Card className="border border-gray-200 rounded-lg">
+                        <CardContent className="py-8 text-center text-sm text-gray-500">
+                          No comments match your current filters.
+                        </CardContent>
                       </Card>
                     ) : (
-                      <div className="space-y-3">
+                      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                         {filteredLikedComments.map(({ comment, thread }) => (
-                          <Card key={comment.id} className="border border-gray-200 rounded-xl shadow-sm hover:shadow-md transition cursor-pointer" onClick={() => navigate(`/feed/${thread.id}`)}>
-                            <CardContent className="p-4 space-y-2">
-                              <div className="flex items-center gap-2 text-[11px] text-gray-500">
+                          <Card 
+                            key={comment.id} 
+                            className="group border border-gray-200 rounded-lg shadow-sm hover:shadow-md transition-all cursor-pointer"
+                            onClick={() => navigate(`/feed/${thread.id}`)}
+                          >
+                            <CardContent className="p-4">
+                              <div className="flex items-start gap-3 mb-3">
+                                <div className="p-2 rounded-lg bg-purple-50">
+                                  <MessageCircle className="h-5 w-5 text-purple-600" />
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2 text-xs text-gray-500 mb-2">
                                 <span>{comment.author}</span>
                                 <span>·</span>
                                 <span>{comment.createdAt}</span>
                               </div>
-                              <p className="text-sm text-[#141414] line-clamp-3">{comment.text}</p>
-                              <div className="text-[11px] text-gray-500">
-                                In thread: <span className="font-semibold text-[#036aff]">{thread.title}</span>
+                              <p className="text-sm text-[#141414] line-clamp-3 mb-3">{comment.text}</p>
+                              <div className="pt-3 border-t border-gray-100">
+                                <p className="text-xs text-gray-500">
+                                  In thread: <span className="font-semibold text-[#036aff]">{thread.title}</span>
+                                </p>
                               </div>
                             </CardContent>
                           </Card>
@@ -1415,20 +1690,28 @@ const CollectionPage = () => {
               </div>
             ) : itemType === "RESOURCE" ? (
               <div>
-                <label className="text-base font-medium mb-2 block">Select Resource *</label>
+                <div className="flex items-center justify-between mb-3">
+                  <label className="text-base font-medium block">Select Resource *</label>
+                  <Badge variant="outline" className="border-orange-200 text-orange-700 text-xs px-2.5 py-1">
+                    <Bookmark className="h-3 w-3 inline mr-1" />
+                    From Bookmarks
+                  </Badge>
+                </div>
                 <Input
                   value={resourceSearchQuery}
                   onChange={(e) => setResourceSearchQuery(e.target.value)}
-                  placeholder="Search resources by title, course code, or description..."
+                  placeholder="Search bookmarked resources..."
                   className="border-gray-200 text-base h-11 mb-3"
                 />
                 <div className="max-h-64 overflow-y-auto space-y-2 border border-gray-200 rounded-lg p-2">
-                  {filteredResources.length === 0 ? (
+                  {filteredBookmarkedResourcesForAdd.length === 0 ? (
                     <div className="text-center py-8 text-sm text-gray-500">
-                      No resources found. Try a different search term.
+                      {bookmarkedResources.length === 0 
+                        ? "No bookmarked resources. Bookmark some resources first."
+                        : "No bookmarked resources match your search."}
                     </div>
                   ) : (
-                    filteredResources.map((resource) => {
+                    filteredBookmarkedResourcesForAdd.map((resource) => {
                       const isSaved = alreadySavedResourceIds.has(resource.id)
                       const isSelected = selectedResourceId === resource.id
                       return (
@@ -1452,6 +1735,10 @@ const CollectionPage = () => {
                                 <h4 className="text-sm font-semibold text-[#141414] truncate">
                                   {resource.title}
                                 </h4>
+                                <Badge variant="outline" className="border-orange-200 text-orange-700 text-xs px-2 py-0">
+                                  <Bookmark className="h-3 w-3 inline mr-1" />
+                                  Bookmarked
+                                </Badge>
                                 {isSaved && (
                                   <Badge variant="outline" className="border-green-200 text-green-700 text-xs px-2 py-0">
                                     Saved
@@ -1475,13 +1762,146 @@ const CollectionPage = () => {
                   )}
                 </div>
               </div>
+            ) : itemType === "THREAD" ? (
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <label className="text-base font-medium block">Select Thread *</label>
+                  <Badge variant="outline" className="border-orange-200 text-orange-700 text-xs px-2.5 py-1">
+                    <Bookmark className="h-3 w-3 inline mr-1" />
+                    From Liked ({likedThreads.length})
+                  </Badge>
+                </div>
+                <Input
+                  value={resourceSearchQuery}
+                  onChange={(e) => setResourceSearchQuery(e.target.value)}
+                  placeholder="Search liked threads..."
+                  className="border-gray-200 text-base h-11 mb-3"
+                />
+                <div className="max-h-64 overflow-y-auto space-y-2 border border-gray-200 rounded-lg p-2">
+                  {filteredLikedThreadsForAdd.length === 0 ? (
+                    <div className="text-center py-8 text-sm text-gray-500">
+                      {likedThreads.length === 0 
+                        ? "No liked threads. Like some threads first."
+                        : "No liked threads match your search."}
+                    </div>
+                  ) : (
+                    filteredLikedThreadsForAdd.map((thread) => {
+                      const isSelected = selectedThreadId === thread.id
+                      return (
+                        <button
+                          key={thread.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedThreadId(thread.id)
+                            setResourceSearchQuery(thread.title)
+                          }}
+                          className={cn(
+                            "w-full text-left p-3 rounded-lg border transition-all",
+                            isSelected
+                              ? "border-[#036aff] bg-[#036aff]/5"
+                              : "border-gray-200 hover:border-gray-300 hover:bg-gray-50"
+                          )}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-1">
+                                <h4 className="text-sm font-semibold text-[#141414] truncate">
+                                  {thread.title}
+                                </h4>
+                                <Badge variant="outline" className="border-orange-200 text-orange-700 text-xs px-2 py-0">
+                                  <Bookmark className="h-3 w-3 inline mr-1" />
+                                  Liked
+                                </Badge>
+                              </div>
+                              <p className="text-xs text-gray-500 mb-1 line-clamp-1">{thread.content}</p>
+                              <div className="flex items-center gap-2 text-xs text-gray-400">
+                                <span>{thread.author.name}</span>
+                                <span>·</span>
+                                <span>{thread.createdAt}</span>
+                              </div>
+                            </div>
+                            {isSelected && (
+                              <Check className="h-5 w-5 text-[#036aff] shrink-0" />
+                            )}
+                          </div>
+                        </button>
+                      )
+                    })
+                  )}
+                </div>
+              </div>
+            ) : itemType === "COMMENT" ? (
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <label className="text-base font-medium block">Select Comment *</label>
+                  <Badge variant="outline" className="border-orange-200 text-orange-700 text-xs px-2.5 py-1">
+                    <Bookmark className="h-3 w-3 inline mr-1" />
+                    From Liked ({likedComments.length})
+                  </Badge>
+                </div>
+                <Input
+                  value={resourceSearchQuery}
+                  onChange={(e) => setResourceSearchQuery(e.target.value)}
+                  placeholder="Search liked comments..."
+                  className="border-gray-200 text-base h-11 mb-3"
+                />
+                <div className="max-h-64 overflow-y-auto space-y-2 border border-gray-200 rounded-lg p-2">
+                  {filteredLikedCommentsForAdd.length === 0 ? (
+                    <div className="text-center py-8 text-sm text-gray-500">
+                      {likedComments.length === 0 
+                        ? "No liked comments. Like some comments first."
+                        : "No liked comments match your search."}
+                    </div>
+                  ) : (
+                    filteredLikedCommentsForAdd.map(({ comment, thread }) => {
+                      const isSelected = selectedCommentId === comment.id
+                      return (
+                        <button
+                          key={comment.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedCommentId(comment.id)
+                            setResourceSearchQuery(comment.text.substring(0, 30))
+                          }}
+                          className={cn(
+                            "w-full text-left p-3 rounded-lg border transition-all",
+                            isSelected
+                              ? "border-[#036aff] bg-[#036aff]/5"
+                              : "border-gray-200 hover:border-gray-300 hover:bg-gray-50"
+                          )}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-1">
+                                <Badge variant="outline" className="border-orange-200 text-orange-700 text-xs px-2 py-0">
+                                  <Bookmark className="h-3 w-3 inline mr-1" />
+                                  Liked
+                                </Badge>
+                              </div>
+                              <p className="text-sm text-[#141414] mb-1 line-clamp-2">{comment.text}</p>
+                              <div className="flex items-center gap-2 text-xs text-gray-400">
+                                <span>{comment.author}</span>
+                                <span>·</span>
+                                <span>In: {thread.title}</span>
+                              </div>
+                            </div>
+                            {isSelected && (
+                              <Check className="h-5 w-5 text-[#036aff] shrink-0" />
+                            )}
+                          </div>
+                        </button>
+                      )
+                    })
+                  )}
+                </div>
+              </div>
             ) : (
               <div>
                 <label className="text-base font-medium mb-2 block">Reference ID *</label>
                 <Input
                   value={itemReferenceId}
                   onChange={(e) => setItemReferenceId(e.target.value)}
-                  placeholder="Enter the ID of the thread or comment"
+                  placeholder="Enter the ID of the item"
                   className="border-gray-200 text-base h-11"
                 />
               </div>
@@ -1617,114 +2037,245 @@ const CollectionPage = () => {
           </DialogHeader>
           <div className="flex-1 overflow-y-auto py-4">
             {selectedCollection?.collection_items && selectedCollection.collection_items.length > 0 ? (
-              <div className="space-y-3">
-                {selectedCollection.collection_items.map((item, index) => (
-                  <Card
-                    key={item.id}
-                    className="border border-gray-200 rounded-xl shadow-sm hover:shadow-md transition-shadow"
-                  >
-                    <CardContent className="p-5">
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="flex-1 min-w-0 space-y-3">
-                          <div className="flex items-center gap-3">
-                            <div className="flex items-center justify-center w-10 h-10 rounded-lg bg-[#f5f5f5]">
-                              {getItemTypeIcon(item.type)}
+              <div className="space-y-4">
+                {selectedCollection.collection_items.map((item, index) => {
+                  // Get thread/comment data if available
+                  let threadData: FeedPost | null = null
+                  let commentData: { comment: FeedComment; thread: FeedPost } | null = null
+                  
+                  if (item.type === "THREAD" && item.reference_id) {
+                    threadData = likedThreads.find(t => t.id === item.reference_id) || feedPosts.find(t => t.id === item.reference_id) || null
+                  } else if (item.type === "COMMENT" && item.reference_id) {
+                    for (const thread of feedPosts) {
+                      const comment = thread.comments.find(c => c.id === item.reference_id)
+                      if (comment) {
+                        commentData = { comment, thread }
+                        break
+                      }
+                    }
+                  }
+
+                  return (
+                    <Card
+                      key={item.id}
+                      className="group border border-gray-200 rounded-xl shadow-sm hover:shadow-lg transition-all"
+                    >
+                      <CardContent className="p-6">
+                        {/* Header with type badge and actions */}
+                        <div className="flex items-start justify-between gap-4 mb-4">
+                          <div className="flex items-center gap-3 flex-1 min-w-0">
+                            <div className={cn(
+                              "flex items-center justify-center w-12 h-12 rounded-xl",
+                              item.type === "RESOURCE" ? "bg-orange-50" :
+                              item.type === "THREAD" ? "bg-green-50" :
+                              item.type === "COMMENT" ? "bg-purple-50" :
+                              "bg-blue-50"
+                            )}>
+                              <div className={cn(
+                                item.type === "RESOURCE" ? "text-orange-600" :
+                                item.type === "THREAD" ? "text-green-600" :
+                                item.type === "COMMENT" ? "text-purple-600" :
+                                "text-blue-600"
+                              )}>
+                                {getItemTypeIcon(item.type)}
+                              </div>
                             </div>
-                            <div>
-                              <div className="flex items-center gap-2">
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-1">
                                 <Badge
                                   variant="outline"
-                                  className="border-gray-200 text-xs px-3 py-1 font-semibold rounded-full"
+                                  className={cn(
+                                    "text-xs px-2.5 py-1 font-semibold",
+                                    item.type === "RESOURCE" ? "border-orange-200 text-orange-700" :
+                                    item.type === "THREAD" ? "border-green-200 text-green-700" :
+                                    item.type === "COMMENT" ? "border-purple-200 text-purple-700" :
+                                    "border-blue-200 text-blue-700"
+                                  )}
                                 >
                                   {getItemTypeLabel(item.type)}
                                 </Badge>
-                                <span className="text-[11px] text-gray-400">
-                                  Item {index + 1} of {selectedCollection.collection_items?.length}
+                                <span className="text-xs text-gray-400">
+                                  #{index + 1}
                                 </span>
                               </div>
+                              
+                              {/* Resource Title */}
                               {item.type === "RESOURCE" && item.reference_id && resourceIndex[item.reference_id] && (
-                                <p className="text-sm font-semibold text-[#141414] mt-1 line-clamp-1">
+                                <h3 className="text-base font-semibold text-[#141414] line-clamp-2 mt-1">
                                   {resourceIndex[item.reference_id].title}
-                                </p>
+                                </h3>
                               )}
+                              
+                              {/* Thread Title */}
+                              {item.type === "THREAD" && threadData && (
+                                <h3 className="text-base font-semibold text-[#141414] line-clamp-2 mt-1">
+                                  {threadData.title}
+                                </h3>
+                              )}
+                              
+                              {/* Comment Preview */}
+                              {item.type === "COMMENT" && commentData && (
+                                <div className="mt-1">
+                                  <p className="text-sm text-gray-600 line-clamp-2">
+                                    {commentData.comment.text}
+                                  </p>
+                                  <p className="text-xs text-gray-400 mt-1">
+                                    From thread: {commentData.thread.title}
+                                  </p>
+                                </div>
+                              )}
+                              
+                              {/* External URL */}
                               {item.type === "EXTERNAL" && item.url && (
-                                <p className="text-xs text-gray-500 mt-1">
-                                  {getExternalHost(item.url)}
-                                </p>
+                                <div className="mt-1">
+                                  <p className="text-sm text-gray-500 line-clamp-1">
+                                    {getExternalHost(item.url)}
+                                  </p>
+                                </div>
                               )}
                             </div>
                           </div>
-
-                          {item.type === "EXTERNAL" && item.url && (
-                            <div className="pl-13">
-                              <a
-                                href={item.url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center gap-2 text-base text-[#036aff] hover:text-[#036aff]/80 hover:underline break-all font-medium"
-                                onClick={(e) => e.stopPropagation()}
+                          
+                          {/* Action Buttons */}
+                          {selectedCollection && user && selectedCollection.owner_id === user.id && editingItemId !== item.id && (
+                            <div className="flex items-center gap-2 shrink-0">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-9 px-3 border-gray-200 hover:border-[#036aff] hover:bg-[#036aff]/10 hover:text-[#036aff]"
+                                onClick={() => handleEditItem(item)}
                               >
-                                <LinkIcon className="h-4 w-4 shrink-0" />
-                                <span className="break-all">{item.url}</span>
-                              </a>
-                            </div>
-                          )}
-                          
-                          {item.type === "RESOURCE" && item.reference_id && (
-                            <div className="pl-13">
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  navigate(`/resource/${item.reference_id}`)
-                                }}
-                                className="inline-flex items-center gap-2 px-3 py-1.5 bg-[#036aff]/10 hover:bg-[#036aff]/20 rounded-lg border border-[#036aff]/20 text-[#036aff] font-medium transition-colors cursor-pointer"
+                                <Edit className="h-4 w-4 mr-1.5" />
+                                Edit Note
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-9 px-3 border-gray-200 hover:border-red-300 hover:bg-red-50 hover:text-red-600"
+                                onClick={() => handleRemoveItem(item)}
                               >
-                                <FileText className="h-4 w-4" />
-                                <span className="text-sm font-semibold">
-                                  {resourceIndex[item.reference_id]?.title || "View resource"}
-                                </span>
-                              </button>
-                            </div>
-                          )}
-                          
-                          {item.type !== "EXTERNAL" && item.type !== "RESOURCE" && item.reference_id && (
-                            <div className="pl-13">
-                              <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-gray-50 rounded-lg border border-gray-200">
-                                <span className="text-xs font-semibold text-gray-500 uppercase">ID:</span>
-                                <span className="text-base text-gray-700 font-mono">{item.reference_id}</span>
-                              </div>
-                            </div>
-                          )}
-                          
-                          {item.private_note && (
-                            <div className="pl-13 mt-3">
-                              <div className="p-4 bg-gradient-to-br from-[#f5f5f5] to-[#fafafa] rounded-lg border border-gray-100">
-                                <div className="flex items-center gap-2 mb-2">
-                                  <div className="w-1 h-4 bg-[#036aff] rounded-full"></div>
-                                  <p className="text-sm font-semibold text-[#141414]">Private Note</p>
-                                </div>
-                                <p className="text-sm text-gray-700 leading-relaxed pl-3">
-                                  {item.private_note}
-                                </p>
-                              </div>
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
                             </div>
                           )}
                         </div>
-                        
-                        {selectedCollection && user && selectedCollection.owner_id === user.id && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-gray-400 hover:text-red-600 hover:bg-red-50 px-3 shrink-0"
-                            onClick={() => handleRemoveItem(item)}
-                          >
-                            <Trash2 className="h-5 w-5" />
-                          </Button>
-                        )}
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
+
+                        {/* Content Actions */}
+                        <div className="mb-4">
+                          {item.type === "RESOURCE" && item.reference_id && (
+                            <Button
+                              variant="outline"
+                              className="w-full justify-start border-gray-200 hover:bg-gray-50"
+                              onClick={() => navigate(`/resource/${item.reference_id}`)}
+                            >
+                              <FileText className="h-4 w-4 mr-2" />
+                              <span className="font-medium">View Resource</span>
+                            </Button>
+                          )}
+                          
+                          {item.type === "THREAD" && threadData && (
+                            <Button
+                              variant="outline"
+                              className="w-full justify-start border-gray-200 hover:bg-gray-50"
+                              onClick={() => navigate(`/feed/${threadData!.id}`)}
+                            >
+                              <MessageSquare className="h-4 w-4 mr-2" />
+                              <span className="font-medium">View Thread</span>
+                            </Button>
+                          )}
+                          
+                          {item.type === "COMMENT" && commentData && (
+                            <Button
+                              variant="outline"
+                              className="w-full justify-start border-gray-200 hover:bg-gray-50"
+                              onClick={() => navigate(`/feed/${commentData!.thread.id}`)}
+                            >
+                              <MessageCircle className="h-4 w-4 mr-2" />
+                              <span className="font-medium">View Thread</span>
+                            </Button>
+                          )}
+                          
+                          {item.type === "EXTERNAL" && item.url && (
+                            <Button
+                              variant="outline"
+                              className="w-full justify-start border-gray-200 hover:bg-gray-50"
+                              asChild
+                            >
+                              <a href={item.url} target="_blank" rel="noopener noreferrer">
+                                <LinkIcon className="h-4 w-4 mr-2" />
+                                <span className="font-medium">Open Link</span>
+                              </a>
+                            </Button>
+                          )}
+                        </div>
+
+                        {/* Private Note Section */}
+                        {editingItemId === item.id ? (
+                          <div className="pt-4 border-t border-gray-200">
+                            <label className="text-sm font-semibold text-[#141414] mb-2 block">
+                              Private Note
+                            </label>
+                            <textarea
+                              value={editingItemNote}
+                              onChange={(e) => setEditingItemNote(e.target.value)}
+                              rows={4}
+                              className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-[#036aff]/20 focus:border-[#036aff] mb-3"
+                              placeholder="Add your private notes about this item..."
+                            />
+                            <div className="flex gap-2">
+                              <Button
+                                size="sm"
+                                className="bg-[#036aff] text-white hover:bg-[#036aff]/90 px-4"
+                                onClick={handleSaveItemEdit}
+                                disabled={loading}
+                              >
+                                Save Note
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="border-gray-200 px-4"
+                                onClick={handleCancelItemEdit}
+                              >
+                                Cancel
+                              </Button>
+                            </div>
+                          </div>
+                        ) : (item.private_note || (selectedCollection && user && selectedCollection.owner_id === user.id)) ? (
+                          <div className="pt-4 border-t border-gray-200">
+                            <div className="flex items-center justify-between mb-2">
+                              <label className="text-sm font-semibold text-[#141414]">
+                                Private Note
+                              </label>
+                              {selectedCollection && user && selectedCollection.owner_id === user.id && !item.private_note && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="text-xs text-[#036aff] hover:text-[#036aff] hover:bg-[#036aff]/10 h-auto py-1"
+                                  onClick={() => handleEditItem(item)}
+                                >
+                                  <Plus className="h-3 w-3 mr-1" />
+                                  Add Note
+                                </Button>
+                              )}
+                            </div>
+                            {item.private_note ? (
+                              <div className="p-3 bg-gray-50 rounded-lg border border-gray-100">
+                                <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">
+                                  {item.private_note}
+                                </p>
+                              </div>
+                            ) : (
+                              <p className="text-sm text-gray-400 italic">
+                                No private note added yet.
+                              </p>
+                            )}
+                          </div>
+                        ) : null}
+                      </CardContent>
+                    </Card>
+                  )
+                })}
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center py-16 px-4">

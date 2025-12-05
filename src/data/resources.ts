@@ -1,3 +1,5 @@
+import type { BackendResource, MediaFile } from "@/services/resource/resourceService"
+
 export interface ResourceItem {
   id: string
   title: string
@@ -11,6 +13,100 @@ export interface ResourceItem {
   contributor: string
   uploadedAt: string
   votes: number
+  media?: {
+    files: MediaFile[]
+    images: MediaFile[]
+    videos: MediaFile[]
+    urls: MediaFile[]
+  }
+}
+
+// Map backend resource to frontend ResourceItem
+export function mapBackendResourceToItem(backend: BackendResource): ResourceItem {
+  try {
+    // Get primary file URL from media
+    let primaryUrl = ""
+    let fileName: string | undefined
+
+    // Check files array first (contains all files including PDFs, DOCX, etc.)
+    if (backend.media?.files && backend.media.files.length > 0) {
+      primaryUrl = backend.media.files[0].url || ""
+      fileName = backend.media.files[0].originalName
+    } else if (backend.media?.images && backend.media.images.length > 0) {
+      primaryUrl = backend.media.images[0].url || ""
+      fileName = backend.media.images[0].originalName
+    } else if (backend.media?.videos && backend.media.videos.length > 0) {
+      primaryUrl = backend.media.videos[0].url || ""
+      fileName = backend.media.videos[0].originalName
+    } else if (backend.media?.urls && backend.media.urls.length > 0) {
+      primaryUrl = backend.media.urls[0].url || ""
+    }
+
+    // Format date
+    let uploadedAt = "Recently"
+    try {
+      const uploadedDate = new Date(backend.created_at)
+      const now = new Date()
+      const diffMs = now.getTime() - uploadedDate.getTime()
+      const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
+      uploadedAt =
+        diffDays === 0
+          ? "Today"
+          : diffDays === 1
+          ? "1 day ago"
+          : diffDays < 7
+          ? `${diffDays} days ago`
+          : diffDays < 30
+          ? `${Math.floor(diffDays / 7)} weeks ago`
+          : `${Math.floor(diffDays / 30)} months ago`
+    } catch (dateError) {
+      console.warn("Failed to parse date:", backend.created_at, dateError)
+    }
+
+    return {
+      id: backend.id || "",
+      title: backend.title || "Untitled",
+      summary: backend.description || "",
+      courseCode: backend.course_code || "",
+      courseName: "", // Will need to be fetched separately or added to backend
+      tags: Array.isArray(backend.hashtags) ? backend.hashtags : [],
+      type: backend.resource_type === "URL" ? "url" : "document",
+      url: primaryUrl,
+      fileName,
+      contributor: backend.owner?.display_name || backend.owner?.student_code || "Unknown",
+      uploadedAt,
+      votes: backend.upvote_count || 0,
+      media: backend.media || {
+        files: [],
+        images: [],
+        videos: [],
+        urls: [],
+      },
+    }
+  } catch (error) {
+    console.error("Error mapping backend resource:", error, backend)
+    // Return a safe fallback
+    return {
+      id: backend.id || "unknown",
+      title: backend.title || "Untitled",
+      summary: backend.description || "",
+      courseCode: backend.course_code || "",
+      courseName: "",
+      tags: [],
+      type: "document",
+      url: "",
+      fileName: undefined,
+      contributor: "Unknown",
+      uploadedAt: "Recently",
+      votes: 0,
+      media: {
+        files: [],
+        images: [],
+        videos: [],
+        urls: [],
+      },
+    }
+  }
 }
 
 export const resourceCourses = [
