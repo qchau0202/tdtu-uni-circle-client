@@ -22,6 +22,7 @@ export interface User {
 
 interface AuthContextType {
   user: User | null
+  accessToken: string | null
   login: (email: string, password: string) => Promise<boolean>
   register: (name: string, email: string, password: string) => Promise<boolean>
   logout: () => void
@@ -182,6 +183,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     <AuthContext.Provider
       value={{
         user,
+        accessToken: session?.access_token ?? null,
         login,
         register,
         logout,

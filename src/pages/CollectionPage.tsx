@@ -18,6 +18,8 @@ import {
   Check,
   LayoutGrid,
   List,
+  Info,
+  Sparkles,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -29,6 +31,7 @@ import { cn } from "@/lib/utils"
 import { toast } from "sonner"
 import { useAuth } from "@/contexts/AuthContext"
 import { resourceItems } from "@/data/resources"
+import { feedPosts, type FeedPost, type FeedComment } from "@/data/feed"
 import {
   getUserCollections,
   getCollectionById,
@@ -53,6 +56,15 @@ const CollectionPage = () => {
   const [activeTab, setActiveTab] = useState<"my-collections" | "discover">("my-collections")
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid")
   const [resourceIndex, setResourceIndex] = useState<Record<string, (typeof resourceItems)[number]>>({})
+  const [bookmarkedResources, setBookmarkedResources] = useState<(typeof resourceItems)[number][]>([])
+  const [likedThreads, setLikedThreads] = useState<FeedPost[]>([])
+  const [likedComments, setLikedComments] = useState<{ comment: FeedComment; thread: FeedPost }[]>([])
+  const [bookmarkSearch, setBookmarkSearch] = useState("")
+  const [bookmarkFilters, setBookmarkFilters] = useState<{
+    resources: boolean
+    threads: boolean
+    comments: boolean
+  }>({ resources: true, threads: true, comments: true })
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedCollection, setSelectedCollection] = useState<Collection | null>(null)
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
@@ -75,10 +87,26 @@ const CollectionPage = () => {
   const [itemPrivateNote, setItemPrivateNote] = useState("")
   const [resourceSearchQuery, setResourceSearchQuery] = useState("")
   const [selectedResourceId, setSelectedResourceId] = useState<string | null>(null)
+  const quickTagPresets = ["midterm", "final", "labs", "project", "reference", "notes"]
+  const quickTemplates = [
+    {
+      name: "Midterm study pack",
+      description: "Key lectures, problem sets, and solutions for the exam.",
+      visibility: "PRIVATE" as CollectionVisibility,
+      tags: ["midterm", "notes", "practice"],
+    },
+    {
+      name: "Course reference hub",
+      description: "All official docs, slides, and helpful external links.",
+      visibility: "PUBLIC" as CollectionVisibility,
+      tags: ["reference", "slides", "links"],
+    },
+  ]
 
   useEffect(() => {
     if (user) {
       loadMyCollections()
+      loadBookmarkData()
     }
   }, [user])
 
@@ -92,6 +120,10 @@ const CollectionPage = () => {
         index[r.id] = r
       })
       setResourceIndex(index)
+      // Refresh bookmarks when resource index updates
+      if (user) {
+        loadBookmarkData(index)
+      }
     } catch (error) {
       console.error("Failed to build resource index for collections:", error)
     }
@@ -106,6 +138,81 @@ const CollectionPage = () => {
       return ""
     }
   }
+
+  const parseIdList = (key: string): string[] => {
+    try {
+      const raw = localStorage.getItem(key)
+      if (!raw) return []
+      const parsed = JSON.parse(raw)
+      return Array.isArray(parsed) ? parsed.filter((v) => typeof v === "string") : []
+    } catch {
+      return []
+    }
+  }
+
+  const loadBookmarkData = (customResourceIndex?: Record<string, (typeof resourceItems)[number]>) => {
+    if (!user) return
+    const currentIndex = customResourceIndex || resourceIndex
+
+    const resourceIds = parseIdList("unicircle_bookmarked_resources")
+    const likedThreadIds = parseIdList("unicircle_liked_threads")
+    const likedCommentIds = new Set(parseIdList("unicircle_liked_comments"))
+
+    const mappedResources = resourceIds
+      .map((id) => currentIndex[id])
+      .filter((r): r is (typeof resourceItems)[number] => Boolean(r))
+    const mappedThreads = feedPosts.filter((p) => likedThreadIds.includes(p.id))
+
+    const mappedComments: { comment: FeedComment; thread: FeedPost }[] = []
+    feedPosts.forEach((thread) => {
+      thread.comments.forEach((comment) => {
+        if (likedCommentIds.has(comment.id)) {
+          mappedComments.push({ comment, thread })
+        }
+      })
+    })
+
+    setBookmarkedResources(mappedResources)
+    setLikedThreads(mappedThreads)
+    setLikedComments(mappedComments)
+  }
+
+  const toggleBookmarkFilter = (key: "resources" | "threads" | "comments") => {
+    setBookmarkFilters((prev) => ({
+      ...prev,
+      [key]: !prev[key],
+    }))
+  }
+
+  const matchesSearch = (text: string) => {
+    if (!bookmarkSearch.trim()) return true
+    return text.toLowerCase().includes(bookmarkSearch.trim().toLowerCase())
+  }
+
+  const filteredBookmarkedResources = bookmarkedResources.filter(
+    (res) =>
+      bookmarkFilters.resources &&
+      (matchesSearch(res.title) ||
+        matchesSearch(res.summary) ||
+        matchesSearch(res.courseCode) ||
+        res.tags.some((t) => matchesSearch(t)))
+  )
+
+  const filteredLikedThreads = likedThreads.filter(
+    (thread) =>
+      bookmarkFilters.threads &&
+      (matchesSearch(thread.title) ||
+        matchesSearch(thread.content) ||
+        matchesSearch(thread.author.name))
+  )
+
+  const filteredLikedComments = likedComments.filter(
+    ({ comment, thread }) =>
+      bookmarkFilters.comments &&
+      (matchesSearch(comment.text) ||
+        matchesSearch(comment.author) ||
+        matchesSearch(thread.title))
+  )
 
   const loadMyCollections = () => {
     if (!user) return
@@ -357,7 +464,12 @@ const CollectionPage = () => {
   })
 
   const addTag = () => {
-    if (newTag.trim() && !collectionTags.includes(newTag.trim())) {
+    if (!newTag.trim()) return
+    if (collectionTags.length >= 6) {
+      toast.error("You can add up to 6 tags")
+      return
+    }
+    if (!collectionTags.includes(newTag.trim())) {
       setCollectionTags([...collectionTags, newTag.trim()])
       setNewTag("")
     }
@@ -434,6 +546,17 @@ const CollectionPage = () => {
           >
             Discover
           </TabsTrigger>
+            <TabsTrigger
+              value="bookmarks"
+              className={cn(
+                "px-5 py-2.5 rounded-md font-bold text-base",
+                activeTab === "bookmarks"
+                  ? "bg-[#036aff] text-white"
+                  : "text-gray-600 hover:text-[#141414]"
+              )}
+            >
+              Bookmarks
+            </TabsTrigger>
         </TabsList>
 
         {/* My Collections Tab */}
@@ -722,109 +845,427 @@ const CollectionPage = () => {
             </div>
           </div>
         </TabsContent>
+
+        {/* Bookmarks Tab */}
+        <TabsContent value="bookmarks" className="mt-6">
+          <div className="space-y-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3 className="text-xl font-semibold text-[#141414]">Your saved items</h3>
+                <p className="text-sm text-gray-500">Resources you bookmarked, threads and comments you liked.</p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 text-sm text-gray-500">
+                <Bookmark className="h-4 w-4" />
+                <span>
+                  {bookmarkedResources.length} resources · {likedThreads.length} threads · {likedComments.length} comments
+                </span>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-3 items-center">
+              <Input
+                value={bookmarkSearch}
+                onChange={(e) => setBookmarkSearch(e.target.value)}
+                placeholder="Search saved items..."
+                className="w-full sm:w-72 border-gray-200 text-sm"
+              />
+              <div className="flex flex-wrap gap-2 text-xs font-semibold">
+                <button
+                  type="button"
+                  onClick={() => toggleBookmarkFilter("resources")}
+                  className={cn(
+                    "rounded-full px-3 py-1 border",
+                    bookmarkFilters.resources
+                      ? "border-[#036aff] bg-[#036aff]/10 text-[#036aff]"
+                      : "border-gray-200 text-gray-600 hover:border-gray-300"
+                  )}
+                >
+                  Resources
+                </button>
+                <button
+                  type="button"
+                  onClick={() => toggleBookmarkFilter("threads")}
+                  className={cn(
+                    "rounded-full px-3 py-1 border",
+                    bookmarkFilters.threads
+                      ? "border-[#036aff] bg-[#036aff]/10 text-[#036aff]"
+                      : "border-gray-200 text-gray-600 hover:border-gray-300"
+                  )}
+                >
+                  Threads
+                </button>
+                <button
+                  type="button"
+                  onClick={() => toggleBookmarkFilter("comments")}
+                  className={cn(
+                    "rounded-full px-3 py-1 border",
+                    bookmarkFilters.comments
+                      ? "border-[#036aff] bg-[#036aff]/10 text-[#036aff]"
+                      : "border-gray-200 text-gray-600 hover:border-gray-300"
+                  )}
+                >
+                  Comments
+                </button>
+              </div>
+            </div>
+
+            {filteredBookmarkedResources.length === 0 && filteredLikedThreads.length === 0 && filteredLikedComments.length === 0 ? (
+              <Card className="border border-gray-200 rounded-xl shadow-sm">
+                <CardContent className="py-10 text-center space-y-3">
+                  <Bookmark className="h-10 w-10 text-gray-400 mx-auto" />
+                  <p className="text-base text-gray-600">No items match these filters.</p>
+                  <p className="text-sm text-gray-500">
+                    Adjust filters or clear the search to see more.
+                  </p>
+                </CardContent>
+              </Card>
+            ) : (
+              <div
+                className={cn(
+                  "grid gap-5",
+                  [bookmarkFilters.resources, bookmarkFilters.threads, bookmarkFilters.comments].filter(Boolean).length === 1
+                    ? "grid-cols-1"
+                    : [bookmarkFilters.resources, bookmarkFilters.threads, bookmarkFilters.comments].filter(Boolean).length === 2
+                      ? "lg:grid-cols-2"
+                      : "lg:grid-cols-3"
+                )}
+              >
+                {bookmarkFilters.resources && (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <Bookmark className="h-4 w-4 text-[#036aff]" />
+                      <p className="text-sm font-semibold text-[#141414]">Bookmarked resources</p>
+                    </div>
+                    {filteredBookmarkedResources.length === 0 ? (
+                      <Card className="border border-gray-200 rounded-xl shadow-sm">
+                        <CardContent className="py-6 text-center text-sm text-gray-500">Nothing here with current filters.</CardContent>
+                      </Card>
+                    ) : (
+                      <div className="space-y-3">
+                        {filteredBookmarkedResources.map((res) => (
+                          <Card key={res.id} className="border border-gray-200 rounded-xl shadow-sm hover:shadow-md transition cursor-pointer" onClick={() => navigate(`/resource/${res.id}`)}>
+                            <CardContent className="p-4 space-y-2">
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <h4 className="text-sm font-semibold text-[#141414] truncate">{res.title}</h4>
+                                  <p className="text-xs text-gray-500 line-clamp-2">{res.summary}</p>
+                                </div>
+                                <Badge variant="outline" className="border-gray-200 text-[11px] px-2 py-0.5">
+                                  {res.type === "document" ? "Document" : "Link"}
+                                </Badge>
+                              </div>
+                              <div className="flex items-center gap-2 text-[11px] text-gray-500">
+                                <span>{res.courseCode}</span>
+                                <span>·</span>
+                                <span>{res.contributor}</span>
+                              </div>
+                              {res.tags?.length > 0 && (
+                                <div className="flex flex-wrap gap-1.5">
+                                  {res.tags.slice(0, 3).map((tag) => (
+                                    <Badge key={tag} variant="outline" className="border-gray-200 text-[11px] px-2 py-0.5">
+                                      #{tag}
+                                    </Badge>
+                                  ))}
+                                </div>
+                              )}
+                            </CardContent>
+                          </Card>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {bookmarkFilters.threads && (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <MessageSquare className="h-4 w-4 text-[#036aff]" />
+                      <p className="text-sm font-semibold text-[#141414]">Liked threads</p>
+                    </div>
+                    {filteredLikedThreads.length === 0 ? (
+                      <Card className="border border-gray-200 rounded-xl shadow-sm">
+                        <CardContent className="py-6 text-center text-sm text-gray-500">No liked threads with current filters.</CardContent>
+                      </Card>
+                    ) : (
+                      <div className="space-y-3">
+                        {filteredLikedThreads.map((thread) => (
+                          <Card key={thread.id} className="border border-gray-200 rounded-xl shadow-sm hover:shadow-md transition cursor-pointer" onClick={() => navigate(`/feed/${thread.id}`)}>
+                            <CardContent className="p-4 space-y-2">
+                              <div className="flex items-center gap-2 text-[11px] text-gray-500">
+                                <span>{thread.author.name}</span>
+                                <span>·</span>
+                                <span>{thread.createdAt}</span>
+                                <span>·</span>
+                                <span>{thread.threadType}</span>
+                              </div>
+                              <h4 className="text-sm font-semibold text-[#141414] line-clamp-2">{thread.title}</h4>
+                              <p className="text-xs text-gray-600 line-clamp-2">{thread.content}</p>
+                              <div className="flex items-center gap-3 text-[11px] text-gray-500">
+                                <span className="flex items-center gap-1">
+                                  <MessageCircle className="h-3.5 w-3.5" /> {thread.stats.comments}
+                                </span>
+                                <span className="flex items-center gap-1">
+                                  <Bookmark className="h-3.5 w-3.5" /> {thread.stats.likes}
+                                </span>
+                              </div>
+                            </CardContent>
+                          </Card>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {bookmarkFilters.comments && (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <MessageCircle className="h-4 w-4 text-[#036aff]" />
+                      <p className="text-sm font-semibold text-[#141414]">Liked comments</p>
+                    </div>
+                    {filteredLikedComments.length === 0 ? (
+                      <Card className="border border-gray-200 rounded-xl shadow-sm">
+                        <CardContent className="py-6 text-center text-sm text-gray-500">No liked comments with current filters.</CardContent>
+                      </Card>
+                    ) : (
+                      <div className="space-y-3">
+                        {filteredLikedComments.map(({ comment, thread }) => (
+                          <Card key={comment.id} className="border border-gray-200 rounded-xl shadow-sm hover:shadow-md transition cursor-pointer" onClick={() => navigate(`/feed/${thread.id}`)}>
+                            <CardContent className="p-4 space-y-2">
+                              <div className="flex items-center gap-2 text-[11px] text-gray-500">
+                                <span>{comment.author}</span>
+                                <span>·</span>
+                                <span>{comment.createdAt}</span>
+                              </div>
+                              <p className="text-sm text-[#141414] line-clamp-3">{comment.text}</p>
+                              <div className="text-[11px] text-gray-500">
+                                In thread: <span className="font-semibold text-[#036aff]">{thread.title}</span>
+                              </div>
+                            </CardContent>
+                          </Card>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </TabsContent>
       </Tabs>
 
       {/* Create Collection Dialog */}
       <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle className="text-xl">Create New Collection</DialogTitle>
+        <DialogContent className="sm:max-w-4xl">
+          <DialogHeader className="space-y-1">
+            <DialogTitle className="text-xl flex items-center gap-2">
+              <Sparkles className="h-5 w-5 text-[#036aff]" />
+              Create New Collection
+            </DialogTitle>
             <DialogDescription className="text-base">
-              Create a new collection to organize your resources, threads, comments, and links.
+              Give it a name, choose visibility, and add tags. Use a template or quick tags to get started faster.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-5">
-            <div>
-              <label className="text-base font-medium mb-2 block">Name *</label>
-              <Input
-                value={collectionName}
-                onChange={(e) => setCollectionName(e.target.value)}
-                placeholder="e.g., Web Dev Final"
-                className="border-gray-200 text-base h-11"
-              />
-            </div>
-            <div>
-              <label className="text-base font-medium mb-2 block">Description</label>
-              <Input
-                value={collectionDescription}
-                onChange={(e) => setCollectionDescription(e.target.value)}
-                placeholder="Optional description"
-                className="border-gray-200 text-base h-11"
-              />
-            </div>
-            <div>
-              <label className="text-base font-medium mb-2 block">Visibility</label>
-              <div className="flex gap-1 rounded-full bg-[#f5f5f5] p-1 text-sm font-semibold">
-                <button
-                  type="button"
-                  onClick={() => setCollectionVisibility("PRIVATE")}
-                  className={cn(
-                    "flex-1 rounded-full px-4 py-2 flex items-center justify-center gap-1.5",
-                    collectionVisibility === "PRIVATE"
-                      ? "bg-white text-[#141414] shadow-sm"
-                      : "text-gray-600"
-                  )}
-                >
-                  <Lock className="h-4 w-4" />
-                  Private
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCollectionVisibility("PUBLIC")}
-                  className={cn(
-                    "flex-1 rounded-full px-4 py-2 flex items-center justify-center gap-1.5",
-                    collectionVisibility === "PUBLIC"
-                      ? "bg-white text-[#141414] shadow-sm"
-                      : "text-gray-600"
-                  )}
-                >
-                  <Globe2 className="h-4 w-4" />
-                  Public
-                </button>
+
+          <div className="grid gap-6 md:grid-cols-[1.05fr_0.95fr]">
+            <div className="space-y-5">
+              <div className="rounded-xl border border-gray-200 bg-[#f8fafc] p-4 text-sm text-gray-700 flex items-start gap-3">
+                <Info className="h-5 w-5 text-[#036aff] mt-0.5" />
+                <div className="space-y-2">
+                  <p className="font-semibold text-[#141414]">Tips for a helpful collection</p>
+                  <ul className="list-disc pl-4 space-y-1">
+                    <li>Keep the title specific (course + goal).</li>
+                    <li>Add 2-4 tags so you and teammates can find it quickly.</li>
+                    <li>Public = shareable with classmates; Private = only you.</li>
+                  </ul>
+                </div>
               </div>
-            </div>
-            <div>
-              <label className="text-base font-medium mb-2 block">Tags</label>
-              <div className="flex gap-2 mb-2">
+
+              <div className="space-y-2">
+                <label className="text-base font-medium mb-1 block">Name *</label>
                 <Input
-                  value={newTag}
-                  onChange={(e) => setNewTag(e.target.value)}
-                  onKeyPress={(e) => e.key === "Enter" && (e.preventDefault(), addTag())}
-                  placeholder="Add tag"
+                  value={collectionName}
+                  onChange={(e) => setCollectionName(e.target.value)}
+                  placeholder="e.g., Web Dev Final Study Pack"
                   className="border-gray-200 text-base h-11"
                 />
-                <Button type="button" onClick={addTag} variant="outline" className="border-gray-200 px-4">
-                  <Tag className="h-5 w-5" />
-                </Button>
               </div>
-              {collectionTags.length > 0 && (
+
+              <div className="space-y-2">
+                <label className="text-base font-medium mb-1 block">Description</label>
+                <Input
+                  value={collectionDescription}
+                  onChange={(e) => setCollectionDescription(e.target.value)}
+                  placeholder="What is inside? Who is it for?"
+                  className="border-gray-200 text-base h-11"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-base font-medium mb-1 block">Visibility</label>
+                <div className="flex gap-1 rounded-full bg-[#f5f5f5] p-1 text-sm font-semibold">
+                  <button
+                    type="button"
+                    onClick={() => setCollectionVisibility("PRIVATE")}
+                    className={cn(
+                      "flex-1 rounded-full px-4 py-2 flex items-center justify-center gap-1.5",
+                      collectionVisibility === "PRIVATE"
+                        ? "bg-white text-[#141414] shadow-sm"
+                        : "text-gray-600"
+                    )}
+                  >
+                    <Lock className="h-4 w-4" />
+                    Private
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCollectionVisibility("PUBLIC")}
+                    className={cn(
+                      "flex-1 rounded-full px-4 py-2 flex items-center justify-center gap-1.5",
+                      collectionVisibility === "PUBLIC"
+                        ? "bg-white text-[#141414] shadow-sm"
+                        : "text-gray-600"
+                    )}
+                  >
+                    <Globe2 className="h-4 w-4" />
+                    Public
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="text-base font-medium block">Tags</label>
+                  <span className="text-xs text-gray-500">Add up to 6</span>
+                </div>
+                <div className="flex gap-2 mb-1">
+                  <Input
+                    value={newTag}
+                    onChange={(e) => setNewTag(e.target.value)}
+                    onKeyPress={(e) => e.key === "Enter" && (e.preventDefault(), addTag())}
+                    placeholder="Add tag (course, exam, notes...)"
+                    className="border-gray-200 text-base h-11"
+                  />
+                  <Button type="button" onClick={addTag} variant="outline" className="border-gray-200 px-4">
+                    <Tag className="h-5 w-5" />
+                  </Button>
+                </div>
                 <div className="flex flex-wrap gap-2">
-                  {collectionTags.map((tag) => (
-                    <Badge key={tag} variant="outline" className="flex items-center gap-1.5 border-gray-200 text-sm px-3 py-1">
-                      {tag}
-                      <button onClick={() => removeTag(tag)}>
-                        <X className="h-4 w-4" />
-                      </button>
-                    </Badge>
+                  {quickTagPresets.map((tag) => (
+                    <button
+                      key={tag}
+                      type="button"
+                      onClick={() => {
+                        if (!collectionTags.includes(tag) && collectionTags.length < 6) {
+                          setCollectionTags([...collectionTags, tag])
+                        }
+                      }}
+                      className="rounded-full border border-gray-200 bg-white px-3 py-1 text-xs font-semibold text-gray-600 hover:border-[#036aff] hover:text-[#036aff]"
+                    >
+                      #{tag}
+                    </button>
                   ))}
                 </div>
-              )}
+                {collectionTags.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {collectionTags.map((tag) => (
+                      <Badge key={tag} variant="outline" className="flex items-center gap-1.5 border-gray-200 text-sm px-3 py-1">
+                        {tag}
+                        <button onClick={() => removeTag(tag)}>
+                          <X className="h-4 w-4" />
+                        </button>
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
-            <div className="flex justify-between gap-3 sm:justify-between">
-              <Button
-                variant="ghost"
-                className="text-sm font-bold text-[#141414] hover:bg-[#f5f5f5]"
-                onClick={() => setIsCreateDialogOpen(false)}
-              >
-                Cancel
-              </Button>
-              <Button
-                className="bg-[#036aff] text-white font-bold hover:bg-[#036aff]/90 text-sm px-5 py-2.5"
-                onClick={handleCreateCollection}
-                disabled={loading}
-              >
-                Create Collection
-              </Button>
+
+            <div className="space-y-4">
+              <div className="rounded-xl border border-gray-200 p-4 space-y-3 bg-white shadow-sm">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-semibold text-[#141414]">Templates</p>
+                  <span className="text-xs text-gray-500">1-click fill</span>
+                </div>
+                <div className="space-y-2">
+                  {quickTemplates.map((tpl) => (
+                    <button
+                      key={tpl.name}
+                      type="button"
+                      onClick={() => {
+                        setCollectionName(tpl.name)
+                        setCollectionDescription(tpl.description)
+                        setCollectionVisibility(tpl.visibility)
+                        setCollectionTags(tpl.tags)
+                      }}
+                      className="w-full rounded-lg border border-gray-200 px-3 py-2 text-left hover:border-[#036aff] hover:bg-[#036aff]/5 transition"
+                    >
+                      <p className="text-sm font-semibold text-[#141414]">{tpl.name}</p>
+                      <p className="text-xs text-gray-500">{tpl.description}</p>
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {tpl.tags.map((tag) => (
+                          <Badge key={tag} variant="outline" className="border-gray-200 text-[11px] px-2 py-0.5">
+                            {tag}
+                          </Badge>
+                        ))}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-gray-200 p-4 bg-[#f8fafc] space-y-3">
+                <p className="text-sm font-semibold text-[#141414]">Live preview</p>
+                <div className="rounded-lg border border-dashed border-gray-200 bg-white p-4 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <h4 className="text-base font-semibold text-[#141414] truncate">
+                      {collectionName.trim() || "Untitled collection"}
+                    </h4>
+                    <Badge
+                      variant="outline"
+                      className={cn(
+                        "text-xs px-2.5 py-1",
+                        collectionVisibility === "PUBLIC"
+                          ? "border-green-200 text-green-700"
+                          : "border-gray-200 text-gray-600"
+                      )}
+                    >
+                      {collectionVisibility === "PUBLIC" ? "Public" : "Private"}
+                    </Badge>
+                  </div>
+                  <p className="text-sm text-gray-600 line-clamp-2">
+                    {collectionDescription.trim() || "Description preview will appear here."}
+                  </p>
+                  {collectionTags.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {collectionTags.map((tag) => (
+                        <Badge key={tag} variant="outline" className="border-gray-200 text-xs px-2 py-0.5">
+                          #{tag}
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+                  {collectionTags.length === 0 && (
+                    <p className="text-xs text-gray-400">Add tags to improve search.</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex justify-between gap-3 sm:justify-between">
+                <Button
+                  variant="ghost"
+                  className="text-sm font-bold text-[#141414] hover:bg-[#f5f5f5]"
+                  onClick={() => setIsCreateDialogOpen(false)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  className="bg-[#036aff] text-white font-bold hover:bg-[#036aff]/90 text-sm px-5 py-2.5"
+                  onClick={handleCreateCollection}
+                  disabled={loading}
+                >
+                  Create Collection
+                </Button>
+              </div>
             </div>
           </div>
         </DialogContent>

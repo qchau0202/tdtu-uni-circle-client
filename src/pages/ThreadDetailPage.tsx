@@ -1,4 +1,4 @@
-import { useMemo } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import { ArrowLeft, Globe2, Heart, MessageCircle, Shield, Users } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
@@ -9,6 +9,7 @@ import { Separator } from "@/components/ui/separator"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
 import type { FeedPost } from "@/data/feed"
+import { useAuth } from "@/contexts/AuthContext"
 
 function loadThreadById(id: string): FeedPost | undefined {
   if (typeof window === "undefined") return undefined
@@ -23,13 +24,66 @@ function loadThreadById(id: string): FeedPost | undefined {
   }
 }
 
+function loadAllThreads(): FeedPost[] {
+  if (typeof window === "undefined") return []
+  try {
+    const stored = localStorage.getItem("unicircle_feed_posts")
+    return stored ? (JSON.parse(stored) as FeedPost[]) : []
+  } catch {
+    return []
+  }
+}
+
+function saveThreads(threads: FeedPost[]) {
+  localStorage.setItem("unicircle_feed_posts", JSON.stringify(threads))
+}
+
+function readIdSet(key: string): Set<string> {
+  try {
+    const raw = localStorage.getItem(key)
+    if (!raw) return new Set()
+    const parsed = JSON.parse(raw)
+    if (Array.isArray(parsed)) {
+      return new Set(parsed.filter((v) => typeof v === "string"))
+    }
+    return new Set()
+  } catch {
+    return new Set()
+  }
+}
+
+function writeIdSet(key: string, set: Set<string>) {
+  localStorage.setItem(key, JSON.stringify(Array.from(set)))
+}
+
+function getInitials(name: string) {
+  return name
+    .split(" ")
+    .map((n) => n[0]?.toUpperCase() || "")
+    .join("")
+    .slice(0, 2)
+}
+
 export default function ThreadDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const { user } = useAuth()
 
-  const thread = useMemo(() => {
-    if (!id) return undefined
-    return loadThreadById(id)
+  const [thread, setThread] = useState<FeedPost | null>(null)
+  const [isThreadLiked, setIsThreadLiked] = useState(false)
+  const [likedCommentIds, setLikedCommentIds] = useState<Set<string>>(new Set())
+  const [newComment, setNewComment] = useState("")
+
+  useEffect(() => {
+    if (!id) return
+    const loaded = loadThreadById(id)
+    if (loaded) {
+      setThread(loaded)
+    }
+    const likedThreads = readIdSet("unicircle_liked_threads")
+    const likedComments = readIdSet("unicircle_liked_comments")
+    setIsThreadLiked(likedThreads.has(id))
+    setLikedCommentIds(likedComments)
   }, [id])
 
   if (!id || !thread) {
@@ -58,6 +112,77 @@ export default function ThreadDetailPage() {
 
   const isFriendsOnly = thread.privacy === "friends"
   const isClosed = thread.status === "CLOSED"
+
+  const persistThread = (updated: FeedPost) => {
+    const all = loadAllThreads()
+    const idx = all.findIndex((p) => p.id === updated.id)
+    if (idx !== -1) {
+      all[idx] = updated
+      saveThreads(all)
+      setThread(updated)
+    }
+  }
+
+  const toggleThreadLike = () => {
+    if (!thread) return
+    const likedSet = readIdSet("unicircle_liked_threads")
+    const nextLiked = likedSet.has(thread.id)
+    if (nextLiked) {
+      likedSet.delete(thread.id)
+    } else {
+      likedSet.add(thread.id)
+    }
+    writeIdSet("unicircle_liked_threads", likedSet)
+    setIsThreadLiked(!nextLiked)
+    persistThread({
+      ...thread,
+      stats: {
+        ...thread.stats,
+        likes: Math.max(0, thread.stats.likes + (nextLiked ? -1 : 1)),
+      },
+    })
+  }
+
+  const toggleCommentLike = (commentId: string) => {
+    const nextSet = new Set(likedCommentIds)
+    const isLiked = nextSet.has(commentId)
+    if (isLiked) {
+      nextSet.delete(commentId)
+    } else {
+      nextSet.add(commentId)
+    }
+    setLikedCommentIds(nextSet)
+    writeIdSet("unicircle_liked_comments", nextSet)
+  }
+
+  const handleAddComment = () => {
+    if (!thread || isClosed) return
+    if (!newComment.trim()) {
+      toast.error("Comment cannot be empty")
+      return
+    }
+    const commenterName =
+      user?.name || (user as any)?.username || user?.email || "You"
+    const comment = {
+      id: `c_${Date.now()}`,
+      author: commenterName,
+      initials: getInitials(commenterName),
+      text: newComment.trim(),
+      createdAt: "Just now",
+      isEdited: false,
+    }
+    const updated: FeedPost = {
+      ...thread,
+      comments: [comment, ...thread.comments],
+      stats: {
+        ...thread.stats,
+        comments: thread.stats.comments + 1,
+      },
+    }
+    persistThread(updated)
+    setNewComment("")
+    toast.success("Comment added (local-only)")
+  }
 
   return (
     <div className="space-y-5">
@@ -186,6 +311,32 @@ export default function ThreadDetailPage() {
               <Button
                 variant="ghost"
                 size="sm"
+                className={cn(
+                  "h-9 px-3 text-sm font-semibold",
+                  isThreadLiked ? "text-red-500" : "text-[#141414]"
+                )}
+                onClick={toggleThreadLike}
+              >
+                <Heart
+                  className={cn("mr-1.5 h-4 w-4", isThreadLiked ? "fill-red-500" : "")}
+                />
+                {isThreadLiked ? "Liked" : "Like"}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-9 px-3 text-sm font-semibold text-[#141414]"
+                onClick={() => {
+                  const el = document.getElementById("thread-comment-box")
+                  if (el) el.scrollIntoView({ behavior: "smooth", block: "center" })
+                }}
+              >
+                <MessageCircle className="mr-1.5 h-4 w-4" />
+                Comment
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
                 className="h-9 px-3 text-sm font-semibold text-[#141414]"
                 onClick={() =>
                   toast.success("Mock only", {
@@ -217,26 +368,31 @@ export default function ThreadDetailPage() {
           </div>
 
           {!isClosed && (
-            <div className="rounded-lg border border-gray-200 bg-[#f9fafb] px-4 py-3 space-y-2">
+            <div
+              id="thread-comment-box"
+              className="rounded-lg border border-gray-200 bg-[#f9fafb] px-4 py-3 space-y-3"
+            >
               <p className="text-xs text-gray-500">
-                Commenting is mock-only for now. In the real app this connects to the Feed
-                Service.
+                Add your comment (saved locally). In production this will call the Feed Service.
               </p>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-9 text-xs font-semibold"
-                onClick={() =>
-                  toast.info("Mock comment", {
-                    description:
-                      "Here you would open a full comment composer and persist via Feed Service.",
-                  })
-                }
-              >
-                <MessageCircle className="mr-1.5 h-3.5 w-3.5" />
-                Add comment
-              </Button>
-          </div>
+              <textarea
+                value={newComment}
+                onChange={(e) => setNewComment(e.target.value)}
+                rows={3}
+                placeholder="Write a reply..."
+                className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#036aff]/20"
+              />
+              <div className="flex justify-end">
+                <Button
+                  size="sm"
+                  className="h-9 px-4 text-sm font-semibold"
+                  onClick={handleAddComment}
+                >
+                  <MessageCircle className="mr-1.5 h-3.5 w-3.5" />
+                  Post comment
+                </Button>
+              </div>
+            </div>
           )}
 
           <div className="space-y-3 pt-1">
@@ -266,6 +422,24 @@ export default function ThreadDetailPage() {
                     )}
                   </div>
                   <p className="text-sm text-gray-700 leading-relaxed">{comment.text}</p>
+                  <div className="flex items-center gap-3 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => toggleCommentLike(comment.id)}
+                      className={cn(
+                        "inline-flex items-center gap-1 text-xs font-semibold",
+                        likedCommentIds.has(comment.id) ? "text-red-500" : "text-gray-500 hover:text-[#036aff]"
+                      )}
+                    >
+                      <Heart
+                        className={cn(
+                          "h-3.5 w-3.5",
+                          likedCommentIds.has(comment.id) ? "fill-red-500" : ""
+                        )}
+                      />
+                      {likedCommentIds.has(comment.id) ? "Liked" : "Like"}
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}

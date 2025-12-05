@@ -137,7 +137,7 @@ export function FeedPostCard({ post }: FeedPostCardProps) {
             <MessageCircle className="h-3.5 w-3.5 text-gray-400" />
             <span>{post.comments.length}</span>
           </span>
-        </div>
+          </div>
         </CardContent>
       </Card>
   )

@@ -2,12 +2,23 @@ import { useEffect, useState } from "react"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
 import { emptyProfileInfo, type ProfileInfo, type SocialLink } from "@/data/profile"
 import { useAuth } from "@/contexts/AuthContext"
-import { getProfileById, type BackendProfile } from "@/services/profile/profileService"
+import { getProfileById, updateProfile, type BackendProfile } from "@/services/profile/profileService"
 import { Facebook, Instagram, Linkedin, Github, User, Mail, Phone, Calendar, UserCircle } from "lucide-react"
 import { Link } from "react-router-dom"
 import { cn } from "@/lib/utils"
+import { toast } from "sonner"
 
 const getSocialIcon = (platform: string) => {
   switch (platform) {
@@ -37,18 +48,38 @@ const formatDate = (dateString: string): string => {
 }
 
 export function ProfileOverview() {
-  const { user } = useAuth()
+  const { user, accessToken } = useAuth()
   const [profile, setProfile] = useState<ProfileInfo>(emptyProfileInfo)
   const [loading, setLoading] = useState(false)
+  const [isEditOpen, setIsEditOpen] = useState(false)
+
+  const [editDisplayName, setEditDisplayName] = useState("")
+  const [editDob, setEditDob] = useState("")
+  const [editPhoneNumber, setEditPhoneNumber] = useState("")
+  const [editFaculty, setEditFaculty] = useState("")
+  const [editBio, setEditBio] = useState("")
+  const [editAcademicYear, setEditAcademicYear] = useState("")
+  const [editAvatarUrl, setEditAvatarUrl] = useState("")
+  const [editFacebook, setEditFacebook] = useState("")
+  const [editInstagram, setEditInstagram] = useState("")
+  const [editLinkedin, setEditLinkedin] = useState("")
+  const [editGithub, setEditGithub] = useState("")
+  const [saving, setSaving] = useState(false)
 
   useEffect(() => {
-    if (!user) return
+    if (!user || !accessToken) return
     setLoading(true)
-    getProfileById(user.id)
+    getProfileById(user.id, accessToken)
       .then((backend: BackendProfile) => {
-        const socialLinks: SocialLink[] = Array.isArray(backend.social_links)
-          ? backend.social_links
-          : []
+        let socialLinks: SocialLink[] = []
+        if (Array.isArray(backend.social_links)) {
+          socialLinks = backend.social_links
+        } else if (backend.social_links && typeof backend.social_links === "object") {
+          socialLinks = Object.entries(backend.social_links).map(([platform, url]) => ({
+            platform,
+            url: String(url),
+          }))
+        }
 
         setProfile({
           id: backend.id,
@@ -81,7 +112,21 @@ export function ProfileOverview() {
         }
       })
       .finally(() => setLoading(false))
-  }, [user])
+  }, [user, accessToken])
+
+  useEffect(() => {
+    if (user && !accessToken) {
+      setProfile({
+        ...emptyProfileInfo,
+        id: user.id,
+        studentId: user.studentId,
+        displayName: user.name,
+        academicYear: user.academicYear || "",
+        faculty: user.facultyCode || "",
+        email: user.email,
+      })
+    }
+  }, [user, accessToken])
 
   const initials = user?.initials || profile.displayName.charAt(0).toUpperCase() || "U"
   const avatarSrc = profile.avatarUrl || user?.avatar
@@ -93,6 +138,95 @@ export function ProfileOverview() {
   const phoneNumber = profile.phoneNumber || "None"
   const email = profile.email || user?.email || "None"
   const bio = profile.bio || "None"
+
+  const handleOpenEdit = () => {
+    setEditDisplayName(profile.displayName || user?.name || "")
+    setEditDob(profile.dob || "")
+    setEditPhoneNumber(profile.phoneNumber || "")
+    setEditFaculty(profile.faculty || user?.facultyCode || "")
+    setEditBio(profile.bio || "")
+    setEditAcademicYear(profile.academicYear || user?.academicYear || "")
+    setEditAvatarUrl(profile.avatarUrl || user?.avatar || "")
+
+    const links = profile.socialLinks || []
+    setEditFacebook(links.find((l) => l.platform === "facebook")?.url || "")
+    setEditInstagram(links.find((l) => l.platform === "instagram")?.url || "")
+    setEditLinkedin(links.find((l) => l.platform === "linkedin")?.url || "")
+    setEditGithub(links.find((l) => l.platform === "github")?.url || "")
+
+    setIsEditOpen(true)
+  }
+
+  const handleSaveProfile = async () => {
+    if (!user || !accessToken) {
+      toast.error("You must be logged in to update your profile")
+      return
+    }
+
+    try {
+      setSaving(true)
+
+      const socialLinks: Record<string, string> = {}
+      if (editFacebook.trim()) socialLinks.facebook = editFacebook.trim()
+      if (editInstagram.trim()) socialLinks.instagram = editInstagram.trim()
+      if (editLinkedin.trim()) socialLinks.linkedin = editLinkedin.trim()
+      if (editGithub.trim()) socialLinks.github = editGithub.trim()
+
+      // Build payload only with fields actually filled in.
+      const payload: any = {}
+      if (editDisplayName.trim()) payload.display_name = editDisplayName.trim()
+      if (editDob) payload.dob = editDob
+      if (editPhoneNumber.trim()) payload.phone_number = editPhoneNumber.trim()
+      if (editFaculty.trim()) payload.faculty = editFaculty.trim()
+      if (editBio.trim()) payload.bio = editBio.trim()
+      if (editAcademicYear.trim()) payload.academic_year = editAcademicYear.trim()
+      if (editAvatarUrl.trim()) payload.avatar_url = editAvatarUrl.trim()
+      if (Object.keys(socialLinks).length > 0) {
+        payload.social_links = socialLinks
+      }
+
+      if (Object.keys(payload).length === 0) {
+        toast.info("Nothing to update – all fields are blank")
+        return
+      }
+
+      const updated = await updateProfile(profile.id || user.id, payload, accessToken)
+
+      const updatedSocialLinks: SocialLink[] = Array.isArray(updated.social_links)
+        ? updated.social_links
+        : updated.social_links && typeof updated.social_links === "object"
+        ? Object.entries(updated.social_links).map(([platform, url]) => ({
+            platform,
+            url: String(url),
+          }))
+        : []
+
+      setProfile({
+        id: updated.id,
+        studentId: updated.student_id || user.studentId || "",
+        displayName: updated.display_name || user.name || "",
+        dob: updated.dob || "",
+        phoneNumber: updated.phone_number || "",
+        faculty: updated.faculty || user.facultyCode || "",
+        bio: updated.bio || "",
+        academicYear: updated.academic_year || user.academicYear || "",
+        avatarUrl: updated.avatar_url || user.avatar || "",
+        socialLinks: updatedSocialLinks,
+        updatedAt: updated.updated_at || "",
+        email: user.email,
+      })
+
+      toast.success("Profile updated")
+      setIsEditOpen(false)
+    } catch (err) {
+      console.error("Failed to update profile:", err)
+      toast.error("Failed to update profile", {
+        description: err instanceof Error ? err.message : "Something went wrong",
+      })
+    } finally {
+      setSaving(false)
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -109,14 +243,26 @@ export function ProfileOverview() {
             </Avatar>
             <div className="flex-1 space-y-3">
               <div className="space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex flex-wrap items-center gap-2">
-                  <h1 className="text-3xl font-bold text-[#141414]">
-                    {loading ? "Loading profile..." : displayName}
-                  </h1>
-                  {faculty !== "None" && (
-                    <Badge className="bg-[#036aff]/10 text-[#036aff] border-none text-sm font-semibold px-3 py-1">
-                      {faculty}
+                    <h1 className="text-3xl font-bold text-[#141414]">
+                      {loading ? "Loading profile..." : displayName}
+                    </h1>
+                    {faculty !== "None" && (
+                      <Badge className="bg-[#036aff]/10 text-[#036aff] border-none text-sm font-semibold px-3 py-1">
+                        {faculty}
                   </Badge>
+                    )}
+                  </div>
+                  {accessToken && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-xs font-semibold text-[#141414] border-gray-200 hover:bg-[#f5f5f5]"
+                      onClick={handleOpenEdit}
+                    >
+                      Edit profile
+                    </Button>
                   )}
                 </div>
                 <div className="flex flex-wrap items-center gap-3 text-base text-gray-600">
@@ -230,9 +376,135 @@ export function ProfileOverview() {
           )}
         </CardContent>
       </Card>
+
+      {/* Edit Profile Dialog */}
+      <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-xl">Edit profile</DialogTitle>
+            <DialogDescription className="text-sm text-gray-500">
+              Update your basic information. Leave a field blank to keep it as &ldquo;None&rdquo;.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <label className="text-sm font-semibold text-[#141414]">Display name</label>
+              <Input
+                value={editDisplayName}
+                onChange={(e) => setEditDisplayName(e.target.value)}
+                placeholder="Your name"
+                className="border-gray-200 h-10 text-sm"
+              />
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-[#141414]">Date of birth</label>
+                <Input
+                  type="date"
+                  value={editDob}
+                  onChange={(e) => setEditDob(e.target.value)}
+                  className="border-gray-200 h-10 text-sm"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-[#141414]">Academic year</label>
+                <Input
+                  value={editAcademicYear}
+                  onChange={(e) => setEditAcademicYear(e.target.value)}
+                  placeholder="2023-2027"
+                  className="border-gray-200 h-10 text-sm"
+                />
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-[#141414]">Phone number</label>
+                <Input
+                  value={editPhoneNumber}
+                  onChange={(e) => setEditPhoneNumber(e.target.value)}
+                  placeholder="+84..."
+                  className="border-gray-200 h-10 text-sm"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-semibold text-[#141414]">Faculty</label>
+                <Input
+                  value={editFaculty}
+                  onChange={(e) => setEditFaculty(e.target.value)}
+                  placeholder="Information Technology"
+                  className="border-gray-200 h-10 text-sm"
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-semibold text-[#141414]">Bio</label>
+              <textarea
+                rows={3}
+                value={editBio}
+                onChange={(e) => setEditBio(e.target.value)}
+                placeholder="Tell your classmates about your interests, courses, or study goals"
+                className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#036aff]/20"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-semibold text-[#141414]">Avatar URL</label>
+              <Input
+                value={editAvatarUrl}
+                onChange={(e) => setEditAvatarUrl(e.target.value)}
+                placeholder="https://..."
+                className="border-gray-200 h-10 text-sm"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-semibold text-[#141414]">Social links</label>
+              <div className="space-y-2">
+                <Input
+                  value={editFacebook}
+                  onChange={(e) => setEditFacebook(e.target.value)}
+                  placeholder="Facebook URL"
+                  className="border-gray-200 h-9 text-sm"
+                />
+                <Input
+                  value={editInstagram}
+                  onChange={(e) => setEditInstagram(e.target.value)}
+                  placeholder="Instagram URL"
+                  className="border-gray-200 h-9 text-sm"
+                />
+                <Input
+                  value={editLinkedin}
+                  onChange={(e) => setEditLinkedin(e.target.value)}
+                  placeholder="LinkedIn URL"
+                  className="border-gray-200 h-9 text-sm"
+                />
+                <Input
+                  value={editGithub}
+                  onChange={(e) => setEditGithub(e.target.value)}
+                  placeholder="GitHub URL"
+                  className="border-gray-200 h-9 text-sm"
+                />
+              </div>
+            </div>
+          </div>
+          <DialogFooter className="flex justify-between gap-3 sm:justify-between">
+            <Button
+              variant="ghost"
+              className="text-sm font-bold text-[#141414] hover:bg-[#f5f5f5]"
+              onClick={() => setIsEditOpen(false)}
+              disabled={saving}
+            >
+              Cancel
+            </Button>
+            <Button
+              className="bg-[#036aff] text-white font-bold hover:bg-[#036aff]/90 text-sm px-5 py-2.5"
+              onClick={handleSaveProfile}
+              disabled={saving}
+            >
+              Save changes
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
-
-
 
