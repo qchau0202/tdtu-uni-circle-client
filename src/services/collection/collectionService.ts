@@ -1,9 +1,28 @@
-const API_BASE_URL = import.meta.env.VITE_COLLECTION_SERVICE_URL || 'http://localhost:3006/api/collections';
+// Backend collection service API client
+const API_BASE_URL = import.meta.env.VITE_COLLECTION_SERVICE_URL || 'http://localhost:3005/api/collections';
 const API_KEY = import.meta.env.VITE_API_KEY || '';
 
 export type CollectionItemType = 'RESOURCE' | 'THREAD' | 'COMMENT' | 'EXTERNAL';
 export type CollectionVisibility = 'PRIVATE' | 'PUBLIC';
 
+// Backend collection structure
+export interface BackendCollection {
+  id: string;
+  owner_id: string;
+  name: string;
+  description?: string | null;
+  is_public: boolean;
+  tags: string[];
+  refs: string[]; // Array of reference IDs (resources, threads, comments, etc.)
+  created_at: string;
+  owner?: {
+    id: string;
+    student_code: string;
+    email: string;
+  };
+}
+
+// Frontend collection structure (with mapped items)
 export interface CollectionItem {
   id: string;
   collection_id: string;
@@ -31,7 +50,7 @@ export interface CreateCollectionRequest {
   description?: string;
   visibility?: CollectionVisibility;
   tags?: string[];
-  owner_id: string;
+  refs?: string[];
 }
 
 export interface UpdateCollectionRequest {
@@ -39,6 +58,7 @@ export interface UpdateCollectionRequest {
   description?: string;
   visibility?: CollectionVisibility;
   tags?: string[];
+  refs?: string[];
 }
 
 export interface AddItemRequest {
@@ -48,44 +68,115 @@ export interface AddItemRequest {
   private_note?: string;
 }
 
-const getHeaders = () => {
+// Helper to map backend collection to frontend collection
+function mapBackendToFrontend(backend: BackendCollection): Collection {
+  // Map refs to collection_items
+  // Note: Backend only stores refs as strings, so we create items from them
+  // The frontend will need to handle the type mapping based on context
+  const collection_items: CollectionItem[] = (backend.refs || []).map((ref, index) => ({
+    id: `${backend.id}_item_${index}`,
+    collection_id: backend.id,
+    type: 'RESOURCE' as CollectionItemType, // Default type, can be determined from context
+    reference_id: ref,
+    url: null,
+    private_note: null,
+    created_at: backend.created_at,
+  }));
+
+  return {
+    id: backend.id,
+    name: backend.name,
+    description: backend.description || null,
+    visibility: backend.is_public ? 'PUBLIC' : 'PRIVATE',
+    tags: backend.tags || [],
+    owner_id: backend.owner_id,
+    created_at: backend.created_at,
+    updated_at: backend.created_at, // Backend doesn't have updated_at, use created_at
+    collection_items,
+  };
+}
+
+// Helper to map frontend collection to backend request
+function mapFrontendToBackend(collection: Partial<Collection>): Partial<BackendCollection> {
+  const refs = collection.collection_items?.map(item => item.reference_id).filter(Boolean) as string[] || [];
+  
+  return {
+    name: collection.name,
+    description: collection.description || null,
+    is_public: collection.visibility === 'PUBLIC',
+    tags: collection.tags || [],
+    refs,
+  };
+}
+
+const getHeaders = (accessToken?: string) => {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   };
-  // Always send API key if available, otherwise backend will return 401
+  
+  // Add API key if available
   if (API_KEY) {
-    headers['X-API-Key'] = API_KEY;
+    headers['x-api-key'] = API_KEY;
   }
+  
+  // Add Bearer token for authentication
+  if (accessToken) {
+    headers['Authorization'] = `Bearer ${accessToken}`;
+  }
+  
   return headers;
 };
 
-// Get all collections for a user
-export async function getUserCollections(userId: string): Promise<Collection[]> {
+// Helper to handle API responses
+async function handleResponse<T>(response: Response): Promise<T> {
+  if (!response.ok) {
+    let error;
+    try {
+      error = await response.json();
+    } catch {
+      error = { error: { message: `HTTP ${response.status}: Request failed` } };
+    }
+    
+    if (response.status === 401) {
+      throw new Error(error.error?.message || 'Authentication required');
+    }
+    if (response.status === 403) {
+      throw new Error(error.error?.message || 'Access forbidden');
+    }
+    if (response.status === 404) {
+      throw new Error(error.error?.message || 'Resource not found');
+    }
+    
+    throw new Error(error.error?.message || `HTTP ${response.status}: Request failed`);
+  }
+  
+  return response.json();
+}
+
+// Get all collections
+export async function getAllCollections(
+  accessToken?: string,
+  filters?: {
+    filter?: 'all' | 'my' | 'public';
+    is_public?: boolean;
+    tag?: string;
+    search?: string;
+  }
+): Promise<Collection[]> {
   try {
-    const response = await fetch(`${API_BASE_URL}?userId=${userId}`, {
-      headers: getHeaders(),
+    const params = new URLSearchParams();
+    if (filters?.filter) params.append('filter', filters.filter);
+    if (filters?.is_public !== undefined) params.append('is_public', String(filters.is_public));
+    if (filters?.tag) params.append('tag', filters.tag);
+    if (filters?.search) params.append('search', filters.search);
+
+    const url = params.toString() ? `${API_BASE_URL}?${params.toString()}` : API_BASE_URL;
+    const response = await fetch(url, {
+      headers: getHeaders(accessToken),
     });
 
-    if (!response.ok) {
-      let error;
-      try {
-        error = await response.json();
-      } catch {
-        error = { error: { message: `HTTP ${response.status}: Failed to fetch collections` } };
-      }
-      
-      if (response.status === 401) {
-        throw new Error('API key is required. Please set VITE_API_KEY in your environment variables.');
-      }
-      if (response.status === 403) {
-        throw new Error('Invalid API key. Please check your VITE_API_KEY environment variable.');
-      }
-      
-      throw new Error(error.error?.message || `HTTP ${response.status}: Failed to fetch collections`);
-    }
-
-    const data = await response.json();
-    return data.collections || data || [];
+    const data = await handleResponse<{ success: boolean; collections: BackendCollection[] }>(response);
+    return (data.collections || []).map(mapBackendToFrontend);
   } catch (error) {
     console.error('Error fetching collections:', error);
     if (error instanceof Error) {
@@ -95,46 +186,51 @@ export async function getUserCollections(userId: string): Promise<Collection[]> 
   }
 }
 
+// Get all collections for a user (convenience function)
+export async function getUserCollections(userId: string, accessToken?: string): Promise<Collection[]> {
+  return getAllCollections(accessToken, { filter: 'my' });
+}
+
 // Get collection by ID
-export async function getCollectionById(id: string, userId: string): Promise<Collection> {
-  const response = await fetch(`${API_BASE_URL}/${id}?userId=${userId}`, {
-    headers: getHeaders(),
-  });
+export async function getCollectionById(id: string, accessToken?: string): Promise<Collection> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/${id}`, {
+      headers: getHeaders(accessToken),
+    });
 
-  if (!response.ok) {
-    throw new Error('Failed to fetch collection');
+    const data = await handleResponse<{ success: boolean; collection: BackendCollection }>(response);
+    return mapBackendToFrontend(data.collection);
+  } catch (error) {
+    console.error('Error fetching collection:', error);
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error('Failed to fetch collection: Network error');
   }
-
-  const data = await response.json();
-  return data.collection;
 }
 
 // Create collection
-export async function createCollection(request: CreateCollectionRequest): Promise<Collection> {
+export async function createCollection(
+  request: CreateCollectionRequest,
+  accessToken: string
+): Promise<Collection> {
   try {
+    const backendRequest = {
+      name: request.name,
+      description: request.description || null,
+      is_public: request.visibility === 'PUBLIC',
+      tags: request.tags || [],
+      refs: request.refs || [],
+    };
+
     const response = await fetch(API_BASE_URL, {
       method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify(request),
+      headers: getHeaders(accessToken),
+      body: JSON.stringify(backendRequest),
     });
 
-    if (!response.ok) {
-      let error;
-      try {
-        error = await response.json();
-      } catch {
-        error = { error: { message: `HTTP ${response.status}: Failed to create collection` } };
-      }
-      
-      if (response.status === 401) {
-        throw new Error('API key is required. Please set VITE_API_KEY in your environment variables.');
-      }
-      
-      throw new Error(error.error?.message || `HTTP ${response.status}: Failed to create collection`);
-    }
-
-    const data = await response.json();
-    return data.collection || data;
+    const data = await handleResponse<{ success: boolean; collection: BackendCollection }>(response);
+    return mapBackendToFrontend(data.collection);
   } catch (error) {
     console.error('Error creating collection:', error);
     if (error instanceof Error) {
@@ -147,70 +243,79 @@ export async function createCollection(request: CreateCollectionRequest): Promis
 // Update collection
 export async function updateCollection(
   id: string,
-  userId: string,
-  request: UpdateCollectionRequest
+  request: UpdateCollectionRequest,
+  accessToken: string
 ): Promise<Collection> {
-  const response = await fetch(`${API_BASE_URL}/${id}?userId=${userId}`, {
-    method: 'PUT',
-    headers: getHeaders(),
-    body: JSON.stringify(request),
-  });
+  try {
+    const backendRequest: any = {};
+    if (request.name !== undefined) backendRequest.name = request.name;
+    if (request.description !== undefined) backendRequest.description = request.description || null;
+    if (request.visibility !== undefined) backendRequest.is_public = request.visibility === 'PUBLIC';
+    if (request.tags !== undefined) backendRequest.tags = request.tags;
+    if (request.refs !== undefined) backendRequest.refs = request.refs;
 
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error?.message || 'Failed to update collection');
+    const response = await fetch(`${API_BASE_URL}/${id}`, {
+      method: 'PUT',
+      headers: getHeaders(accessToken),
+      body: JSON.stringify(backendRequest),
+    });
+
+    const data = await handleResponse<{ success: boolean; collection: BackendCollection }>(response);
+    return mapBackendToFrontend(data.collection);
+  } catch (error) {
+    console.error('Error updating collection:', error);
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error('Failed to update collection: Network error');
   }
-
-  const data = await response.json();
-  return data.collection;
 }
 
 // Delete collection
-export async function deleteCollection(id: string, userId: string): Promise<void> {
-  const response = await fetch(`${API_BASE_URL}/${id}?userId=${userId}`, {
-    method: 'DELETE',
-    headers: getHeaders(),
-  });
+export async function deleteCollection(id: string, accessToken: string): Promise<void> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/${id}`, {
+      method: 'DELETE',
+      headers: getHeaders(accessToken),
+    });
 
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error?.message || 'Failed to delete collection');
+    await handleResponse<{ success: boolean; message: string }>(response);
+  } catch (error) {
+    console.error('Error deleting collection:', error);
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error('Failed to delete collection: Network error');
   }
 }
 
-// Add item to collection
+// Add item to collection (by updating refs array)
 export async function addItemToCollection(
   collectionId: string,
-  userId: string,
-  item: AddItemRequest
-): Promise<CollectionItem> {
+  item: AddItemRequest,
+  accessToken: string
+): Promise<Collection> {
   try {
-    const response = await fetch(`${API_BASE_URL}/${collectionId}/items?userId=${userId}`, {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify(item),
-    });
-
-    if (!response.ok) {
-      let error;
-      try {
-        error = await response.json();
-      } catch {
-        error = { error: { message: `HTTP ${response.status}: Failed to add item` } };
-      }
-      
-      if (response.status === 401) {
-        throw new Error('API key is required. Please set VITE_API_KEY in your environment variables.');
-      }
-      if (response.status === 403) {
-        throw new Error(error.error?.message || 'You do not have permission to add items to this collection.');
-      }
-      
-      throw new Error(error.error?.message || `HTTP ${response.status}: Failed to add item to collection`);
+    // First, get the current collection
+    const currentCollection = await getCollectionById(collectionId, accessToken);
+    
+    // Determine the reference ID to add
+    const referenceId = item.reference_id || item.url || '';
+    if (!referenceId) {
+      throw new Error('reference_id or url is required');
     }
-
-    const data = await response.json();
-    return data.item || data;
+    
+    // Add the reference to the refs array if not already present
+    const currentRefs = currentCollection.collection_items?.map(item => item.reference_id).filter(Boolean) as string[] || [];
+    if (currentRefs.includes(referenceId)) {
+      // Item already exists, return current collection
+      return currentCollection;
+    }
+    
+    const updatedRefs = [...currentRefs, referenceId];
+    
+    // Update the collection with the new refs
+    return updateCollection(collectionId, { refs: updatedRefs }, accessToken);
   } catch (error) {
     console.error('Error adding item to collection:', error);
     if (error instanceof Error) {
@@ -220,37 +325,42 @@ export async function addItemToCollection(
   }
 }
 
-// Update collection item
+// Update collection item (note: backend doesn't support item-level updates, only refs)
+// This is a convenience function that would require fetching and updating the entire collection
 export async function updateCollectionItem(
   itemId: string,
-  userId: string,
-  private_note: string
+  collectionId: string,
+  private_note: string,
+  accessToken: string
 ): Promise<CollectionItem> {
-  const response = await fetch(`${API_BASE_URL}/items/${itemId}?userId=${userId}`, {
-    method: 'PUT',
-    headers: getHeaders(),
-    body: JSON.stringify({ private_note }),
-  });
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error?.message || 'Failed to update item');
-  }
-
-  const data = await response.json();
-  return data.item;
+  // Note: Backend doesn't support item-level metadata like private_note
+  // This would need to be stored separately or the backend would need to support it
+  // For now, we'll just return a placeholder
+  throw new Error('Item-level updates are not supported by the backend. Use updateCollection instead.');
 }
 
-// Remove item from collection
-export async function removeItemFromCollection(itemId: string, userId: string): Promise<void> {
-  const response = await fetch(`${API_BASE_URL}/items/${itemId}?userId=${userId}`, {
-    method: 'DELETE',
-    headers: getHeaders(),
-  });
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error?.message || 'Failed to remove item from collection');
+// Remove item from collection (by updating refs array)
+export async function removeItemFromCollection(
+  collectionId: string,
+  referenceId: string,
+  accessToken: string
+): Promise<Collection> {
+  try {
+    // Get the current collection
+    const currentCollection = await getCollectionById(collectionId, accessToken);
+    
+    // Remove the reference from the refs array
+    const currentRefs = currentCollection.collection_items?.map(item => item.reference_id).filter(Boolean) as string[] || [];
+    const updatedRefs = currentRefs.filter(ref => ref !== referenceId);
+    
+    // Update the collection with the updated refs
+    return updateCollection(collectionId, { refs: updatedRefs }, accessToken);
+  } catch (error) {
+    console.error('Error removing item from collection:', error);
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error('Failed to remove item from collection: Network error');
   }
 }
 
@@ -258,43 +368,54 @@ export async function removeItemFromCollection(itemId: string, userId: string): 
 export async function searchCollections(
   query?: string,
   tags?: string[],
-  userId?: string
+  accessToken?: string
 ): Promise<Collection[]> {
-  const params = new URLSearchParams();
-  if (query) params.append('q', query);
-  if (tags) tags.forEach(tag => params.append('tags', tag));
-  if (userId) params.append('userId', userId);
+  try {
+    const params = new URLSearchParams();
+    if (query) params.append('search', query);
+    if (tags && tags.length > 0) {
+      tags.forEach(tag => params.append('tag', tag));
+    }
+    params.append('filter', 'public'); // Search only public collections
 
-  const response = await fetch(`${API_BASE_URL}/search?${params.toString()}`, {
-    headers: getHeaders(),
-  });
+    const response = await fetch(`${API_BASE_URL}?${params.toString()}`, {
+      headers: getHeaders(accessToken),
+    });
 
-  if (!response.ok) {
-    throw new Error('Failed to search collections');
+    const data = await handleResponse<{ success: boolean; collections: BackendCollection[] }>(response);
+    return (data.collections || []).map(mapBackendToFrontend);
+  } catch (error) {
+    console.error('Error searching collections:', error);
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error('Failed to search collections: Network error');
   }
-
-  const data = await response.json();
-  return data.collections || [];
 }
 
-// Clone collection
+// Clone collection (not directly supported by backend, would need to create new collection with same data)
 export async function cloneCollection(
   id: string,
-  userId: string,
-  newName?: string
+  newName: string,
+  accessToken: string
 ): Promise<Collection> {
-  const response = await fetch(`${API_BASE_URL}/${id}/clone`, {
-    method: 'POST',
-    headers: getHeaders(),
-    body: JSON.stringify({ userId, newName }),
-  });
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error?.message || 'Failed to clone collection');
+  try {
+    // Get the original collection
+    const original = await getCollectionById(id, accessToken);
+    
+    // Create a new collection with the same data but private
+    return createCollection({
+      name: newName || `${original.name} (Copy)`,
+      description: original.description || undefined,
+      visibility: 'PRIVATE',
+      tags: original.tags,
+      refs: original.collection_items?.map(item => item.reference_id).filter(Boolean) as string[] || [],
+    }, accessToken);
+  } catch (error) {
+    console.error('Error cloning collection:', error);
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error('Failed to clone collection: Network error');
   }
-
-  const data = await response.json();
-  return data.collection;
 }
-

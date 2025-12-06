@@ -24,7 +24,7 @@ import {
   createCollection,
   addItemToCollection,
   type Collection,
-} from "@/services/collection/localCollectionService"
+} from "@/services/collection/collectionService"
 
 type ResourceScope = "all" | "following" | "mine"
 
@@ -97,10 +97,11 @@ const ResourcePage = () => {
     }
   }, [user])
 
-  const loadCollections = () => {
+  const loadCollections = async () => {
     if (!user) return
     try {
-      const data = getUserCollections(user.id)
+      if (!accessToken) return
+      const data = await getUserCollections(user.id, accessToken)
       setCollections(data)
       // Check which resources are already saved
       const savedIds = new Set<string>()
@@ -118,7 +119,7 @@ const ResourcePage = () => {
   }
 
   // Get or create main repository collection
-  const getOrCreateMainRepository = (): Collection => {
+  const getOrCreateMainRepository = async (): Promise<Collection> => {
     if (!user) throw new Error("User not authenticated")
     
     // Check if main repository exists
@@ -126,13 +127,13 @@ const ResourcePage = () => {
     if (mainRepo) return mainRepo
 
     // Create main repository
-    const newCollection = createCollection({
+    if (!accessToken) throw new Error("User not authenticated")
+    const newCollection = await createCollection({
       name: "Main Repository",
       description: "Default collection for saved resources",
       visibility: "PRIVATE",
       tags: [],
-      owner_id: user.id,
-    })
+    }, accessToken)
     setCollections([newCollection, ...collections])
     return newCollection
   }
@@ -146,7 +147,7 @@ const ResourcePage = () => {
     setIsSaveDialogOpen(true)
   }
 
-  const handleSaveResource = (collectionId: string | null) => {
+  const handleSaveResource = async (collectionId: string | null) => {
     if (!user || !selectedResourceId) return
 
     try {
@@ -155,18 +156,22 @@ const ResourcePage = () => {
 
       // If no collection selected, use or create main repository
       if (!targetCollectionId) {
-        const mainRepo = getOrCreateMainRepository()
+        const mainRepo = await getOrCreateMainRepository()
         targetCollectionId = mainRepo.id
       }
 
       // Add resource to collection
-      addItemToCollection(targetCollectionId, user.id, {
+      if (!accessToken) {
+        toast.error("Authentication required")
+        return
+      }
+      await addItemToCollection(targetCollectionId, {
         type: "RESOURCE",
         reference_id: selectedResourceId,
-      })
+      }, accessToken)
 
       // Reload collections to get updated data
-      const updatedCollections = getUserCollections(user.id)
+      const updatedCollections = await getUserCollections(user.id, accessToken)
       setCollections(updatedCollections)
       
       // Check which resources are already saved

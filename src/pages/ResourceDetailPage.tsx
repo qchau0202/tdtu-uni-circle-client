@@ -52,7 +52,7 @@ import {
   createCollection,
   addItemToCollection,
   type Collection,
-} from "@/services/collection/localCollectionService"
+} from "@/services/collection/collectionService"
 
 const ResourceDetailPage = () => {
   const { id } = useParams<{ id: string }>()
@@ -122,10 +122,10 @@ const ResourceDetailPage = () => {
     }
   }, [user])
 
-  const loadCollections = () => {
-    if (!user) return
+  const loadCollections = async () => {
+    if (!user || !accessToken) return
     try {
-      const data = getUserCollections(user.id)
+      const data = await getUserCollections(user.id, accessToken)
       setCollections(data)
       const savedIds = new Set<string>()
       data.forEach((collection) => {
@@ -141,18 +141,17 @@ const ResourceDetailPage = () => {
     }
   }
 
-  const getOrCreateMainRepository = (): Collection => {
-    if (!user) throw new Error("User not authenticated")
+  const getOrCreateMainRepository = async (): Promise<Collection> => {
+    if (!user || !accessToken) throw new Error("User not authenticated")
     const mainRepo = collections.find((c) => c.name === "Main Repository")
     if (mainRepo) return mainRepo
 
-    const newCollection = createCollection({
+    const newCollection = await createCollection({
       name: "Main Repository",
       description: "Default collection for saved resources",
       visibility: "PRIVATE",
       tags: [],
-      owner_id: user.id,
-    })
+    }, accessToken)
     setCollections([newCollection, ...collections])
     return newCollection
   }
@@ -165,24 +164,24 @@ const ResourceDetailPage = () => {
     setIsSaveDialogOpen(true)
   }
 
-  const handleSaveResource = (collectionId: string | null) => {
-    if (!user || !resource) return
+  const handleSaveResource = async (collectionId: string | null) => {
+    if (!user || !resource || !accessToken) return
 
     try {
       setLoading(true)
       let targetCollectionId = collectionId
 
       if (!targetCollectionId) {
-        const mainRepo = getOrCreateMainRepository()
+        const mainRepo = await getOrCreateMainRepository()
         targetCollectionId = mainRepo.id
       }
 
-      addItemToCollection(targetCollectionId, user.id, {
+      await addItemToCollection(targetCollectionId, {
         type: "RESOURCE",
         reference_id: resource.id,
-      })
+      }, accessToken)
 
-      const updatedCollections = getUserCollections(user.id)
+      const updatedCollections = await getUserCollections(user.id, accessToken)
       setCollections(updatedCollections)
 
       const savedIds = new Set<string>()
