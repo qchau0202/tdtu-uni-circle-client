@@ -210,9 +210,11 @@ export function mapBackendThreadToFeedPost(thread: BackendThread, _currentUserId
   }
   
   // Get author info
-  const authorName = thread.author?.name || thread.author?.student_code || 'Unknown';
-  const authorStudentCode = thread.author?.student_code;
-  const initials = authorName
+  const authorName = thread.author?.name || '';
+  const authorStudentCode = thread.author?.student_code || 'Unknown';
+  // Use student code for initials if no name
+  const displayName = authorName || authorStudentCode;
+  const initials = displayName
     .split(' ')
     .map(n => n[0]?.toUpperCase() || '')
     .join('')

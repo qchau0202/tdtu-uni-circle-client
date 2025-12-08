@@ -277,13 +277,13 @@ const ResourcePage = () => {
 
       // Reset form
     setUploadTitle("")
-      setUploadCourse("")
-      setUploadDescription("")
+    setUploadCourse("")
+    setUploadDescription("")
       setUploadLink("")
       setUploadFiles([])
       setUploadTags([])
       setTagInput("")
-      setIsUploadOpen(false)
+    setIsUploadOpen(false)
 
     toast.success("Resource uploaded!", {
       description: `"${uploadTitle}" has been shared with your classmates`,

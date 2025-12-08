@@ -1,11 +1,19 @@
 import { useEffect, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
-import { ArrowLeft, Globe2, Heart, MessageCircle, Reply, Users, MoreHorizontal, Pencil, Trash2 } from "lucide-react"
+import { ArrowLeft, Globe2, Heart, MessageCircle, Reply, Users, MoreHorizontal, Pencil, Trash2, UserPlus, UserCheck } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -15,7 +23,7 @@ import {
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
 import { useAuth } from "@/contexts/AuthContext"
-import { followUser, unfollowUser } from "@/services/profile/profileService"
+import { followUser, unfollowUser, checkFollowStatus } from "@/services/profile/profileService"
 import { createNotification } from "@/services/notificationService"
 import {
   getThreadById,
@@ -54,6 +62,7 @@ export default function ThreadDetailPage() {
   const [showEditForm, setShowEditForm] = useState(false)
   const [isFollowingAuthor, setIsFollowingAuthor] = useState(false)
   const [followBusy, setFollowBusy] = useState(false)
+  const [showUnfollowDialog, setShowUnfollowDialog] = useState(false)
 
   const loadThread = async () => {
     if (!id || !accessToken) {
@@ -80,28 +89,43 @@ export default function ThreadDetailPage() {
     }
   }
 
-  const handleToggleFollow = async () => {
+  const handleFollow = async () => {
     if (!thread || !thread.authorId || !user || !accessToken || thread.authorId === user.id) return
     try {
       setFollowBusy(true)
-      if (isFollowingAuthor) {
-        await unfollowUser(thread.authorId, accessToken)
-        setIsFollowingAuthor(false)
-        toast.success("Unfollowed user")
-      } else {
-        await followUser(thread.authorId, accessToken)
-        setIsFollowingAuthor(true)
-        // fire follow notification to recipient
-        await createNotification(accessToken, {
-          recipient_id: thread.authorId,
-          sender_id: user.id,
-          title: `${user.name || "Someone"} followed you`,
-          type: "follow",
-        })
-        toast.success("Followed user")
-      }
+      await followUser(thread.authorId, accessToken, user.id)
+      setIsFollowingAuthor(true)
+      // fire follow notification to recipient
+      await createNotification(accessToken, {
+        recipient_id: thread.authorId,
+        sender_id: user.id,
+        title: `${user.name || "Someone"} followed you`,
+        type: "follow",
+      })
+      toast.success("Followed user")
     } catch (error) {
-      toast.error("Failed to update follow", {
+      toast.error("Failed to follow user", {
+        description: error instanceof Error ? error.message : "Unknown error",
+      })
+    } finally {
+      setFollowBusy(false)
+    }
+  }
+
+  const handleUnfollowClick = () => {
+    setShowUnfollowDialog(true)
+  }
+
+  const handleConfirmUnfollow = async () => {
+    if (!thread || !thread.authorId || !user || !accessToken) return
+    try {
+      setFollowBusy(true)
+      await unfollowUser(thread.authorId, accessToken, user.id)
+      setIsFollowingAuthor(false)
+      setShowUnfollowDialog(false)
+      toast.success("Unfollowed user")
+    } catch (error) {
+      toast.error("Failed to unfollow user", {
         description: error instanceof Error ? error.message : "Unknown error",
       })
     } finally {
@@ -112,6 +136,22 @@ export default function ThreadDetailPage() {
   useEffect(() => {
     loadThread()
   }, [id, accessToken])
+
+  // Check follow status when thread loads
+  useEffect(() => {
+    const loadFollowStatus = async () => {
+      if (!thread?.authorId || !user?.id || !accessToken || thread.authorId === user.id) return
+      try {
+        const following = await checkFollowStatus(thread.authorId, accessToken, user.id)
+        setIsFollowingAuthor(following)
+      } catch (error) {
+        console.error("Failed to check follow status:", error)
+      }
+    }
+    if (thread) {
+      loadFollowStatus()
+    }
+  }, [thread?.authorId, user?.id, accessToken])
 
   const isFriendsOnly = thread?.privacy === "friends"
   const isClosed = thread?.status === "CLOSED"
@@ -375,7 +415,9 @@ export default function ThreadDetailPage() {
                     onClick={() => thread.authorId && navigate(`/profile/${thread.authorId}`)}
                     className="text-base font-semibold text-[#141414] hover:text-[#036aff]"
                   >
-                    {thread.author.studentCode ? `${thread.author.name} - ${thread.author.studentCode}` : thread.author.name}
+                    {thread.author.name && thread.author.name.trim() && thread.author.name !== thread.author.studentCode
+                      ? `${thread.author.name} - ${thread.author.studentCode}`
+                      : thread.author.studentCode || "Unknown"}
                   </button>
                   {thread.author.isFriend && (
                     <span className="rounded-full bg-[#f5f5f5] px-2.5 py-0.5 text-[11px] font-medium text-gray-600">
@@ -405,20 +447,59 @@ export default function ThreadDetailPage() {
             <div className="flex flex-col items-end gap-2">
               <div className="flex items-center gap-2">
                 {!isOwner && thread.authorId && (
-                  <Button
-                    variant={isFollowingAuthor ? "outline" : "default"}
-                    size="sm"
-                    className={cn(
-                      "h-8 px-3",
-                      isFollowingAuthor
-                        ? "border-gray-200 text-gray-700 bg-white hover:bg-gray-50"
-                        : "bg-[#036aff] hover:bg-[#0257d1]"
-                    )}
-                    disabled={followBusy}
-                    onClick={handleToggleFollow}
-                  >
-                    {isFollowingAuthor ? "Unfollow" : "Follow"}
-                  </Button>
+                  <>
+                    <Button
+                      variant={isFollowingAuthor ? "outline" : "default"}
+                      size="sm"
+                      className={cn(
+                        "h-8 px-3",
+                        isFollowingAuthor
+                          ? "border-gray-200 text-gray-700 bg-white hover:bg-gray-50"
+                          : "bg-[#036aff] hover:bg-[#0257d1]"
+                      )}
+                      disabled={followBusy}
+                      onClick={isFollowingAuthor ? handleUnfollowClick : handleFollow}
+                    >
+                      {isFollowingAuthor ? (
+                        <>
+                          <UserCheck className="h-3.5 w-3.5 mr-1.5" />
+                          Following
+                        </>
+                      ) : (
+                        <>
+                          <UserPlus className="h-3.5 w-3.5 mr-1.5" />
+                          Follow
+                        </>
+                      )}
+                    </Button>
+                    <Dialog open={showUnfollowDialog} onOpenChange={setShowUnfollowDialog}>
+                      <DialogContent>
+                        <DialogHeader>
+                          <DialogTitle>Unfollow {thread.author.name && thread.author.name.trim() && thread.author.name !== thread.author.studentCode ? `${thread.author.name} - ${thread.author.studentCode}` : thread.author.studentCode || "Unknown"}?</DialogTitle>
+                          <DialogDescription>
+                            You will no longer see posts from this user in your feed.
+                          </DialogDescription>
+                        </DialogHeader>
+                        <DialogFooter>
+                          <Button
+                            variant="outline"
+                            onClick={() => setShowUnfollowDialog(false)}
+                            disabled={followBusy}
+                          >
+                            Cancel
+                          </Button>
+                          <Button
+                            variant="default"
+                            onClick={handleConfirmUnfollow}
+                            disabled={followBusy}
+                            className="bg-red-600 hover:bg-red-700 text-white"
+                          >
+                            Unfollow
+                          </Button>
+                        </DialogFooter>
+                      </DialogContent>
+                    </Dialog>
+                  </>
                 )}
                 <Badge className="bg-[#036aff0f] text-[#036aff] border-[#036aff26] text-[11px] font-semibold px-2 py-0.5 rounded-full">
                   {thread.threadType === "Q&A" ? "Q&A thread" : "Discussion"}

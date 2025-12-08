@@ -100,29 +100,65 @@ export async function createProfile(
 export async function followUser(
   id: string,
   accessToken: string,
+  followerId?: string,
 ): Promise<void> {
+  // Get follower_id from JWT token if not provided
+  // For now, we'll need to pass it from the component
   const res = await fetch(`${PROFILE_BASE_URL}/following/${id}`, {
     method: "POST",
     headers: authHeaders(accessToken),
+    body: JSON.stringify({ follower_id: followerId }),
   })
   if (!res.ok) {
     const text = await res.text()
-    throw new Error(text || "Failed to follow user")
+    let errorMessage = text || "Failed to follow user"
+    try {
+      const errorData = JSON.parse(text)
+      errorMessage = errorData.error?.message || errorMessage
+    } catch {
+      // Not JSON, use text as is
+    }
+    throw new Error(errorMessage)
   }
 }
 
 export async function unfollowUser(
   id: string,
   accessToken: string,
+  followerId?: string,
 ): Promise<void> {
   const res = await fetch(`${PROFILE_BASE_URL}/following/${id}`, {
     method: "PUT",
     headers: authHeaders(accessToken),
+    body: JSON.stringify({ follower_id: followerId }),
   })
   if (!res.ok) {
     const text = await res.text()
-    throw new Error(text || "Failed to unfollow user")
+    let errorMessage = text || "Failed to unfollow user"
+    try {
+      const errorData = JSON.parse(text)
+      errorMessage = errorData.error?.message || errorMessage
+    } catch {
+      // Not JSON, use text as is
+    }
+    throw new Error(errorMessage)
   }
+}
+
+export async function checkFollowStatus(
+  id: string,
+  accessToken: string,
+  followerId: string,
+): Promise<boolean> {
+  const res = await fetch(`${PROFILE_BASE_URL}/following/${id}?follower_id=${followerId}`, {
+    headers: authHeaders(accessToken),
+  })
+  if (!res.ok) {
+    // If error, assume not following
+    return false
+  }
+  const data = await res.json()
+  return data.isFollowing || false
 }
 
 

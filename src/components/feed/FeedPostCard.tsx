@@ -1,10 +1,23 @@
+import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
-import { Globe2, Users, MoreHorizontal, MessageSquare, HelpCircle, CheckCircle2, Lock } from "lucide-react"
+import { Globe2, Users, MoreHorizontal, MessageSquare, HelpCircle, CheckCircle2, Lock, UserPlus, UserCheck, Heart, MessageCircle } from "lucide-react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { cn } from "@/lib/utils"
+import { toast } from "sonner"
+import { useAuth } from "@/contexts/AuthContext"
+import { followUser, unfollowUser, checkFollowStatus } from "@/services/profile/profileService"
+import { createNotification } from "@/services/notificationService"
 import type { FeedPost } from "@/data/feed"
 
 interface FeedPostCardProps {
@@ -13,8 +26,18 @@ interface FeedPostCardProps {
 
 export function FeedPostCard({ post }: FeedPostCardProps) {
   const navigate = useNavigate()
+  const { user, accessToken } = useAuth()
   const DEFAULT_AVATAR = "/UniCircle_logo-removebg.png"
   const isFriendsOnly = post.privacy === "friends"
+  const [isFollowing, setIsFollowing] = useState(false)
+  const [followBusy, setFollowBusy] = useState(false)
+  const [showUnfollowDialog, setShowUnfollowDialog] = useState(false)
+  const isOwner = !!(user?.id && post.authorId === user.id)
+
+  const authorDisplay =
+    post.author.name && post.author.name.trim() && post.author.name !== post.author.studentCode
+      ? `${post.author.name} - ${post.author.studentCode}`
+      : post.author.studentCode || "Unknown"
 
   const handleOpenThread = (e: React.MouseEvent) => {
     // Don't navigate if clicking on interactive elements
@@ -40,6 +63,66 @@ export function FeedPostCard({ post }: FeedPostCardProps) {
     }
   }
 
+  // Check follow status on mount
+  useEffect(() => {
+    const loadFollowStatus = async () => {
+      if (!post.authorId || !user?.id || !accessToken || post.authorId === user.id) return
+      try {
+        const following = await checkFollowStatus(post.authorId, accessToken, user.id)
+        setIsFollowing(following)
+      } catch (error) {
+        console.error("Failed to check follow status:", error)
+      }
+    }
+    loadFollowStatus()
+  }, [post.authorId, user?.id, accessToken])
+
+  const handleFollow = async (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (!post.authorId || !user || !accessToken || post.authorId === user.id) return
+    try {
+      setFollowBusy(true)
+      await followUser(post.authorId, accessToken, user.id)
+      setIsFollowing(true)
+      // Send follow notification
+      await createNotification(accessToken, {
+        recipient_id: post.authorId,
+        sender_id: user.id,
+        title: `${user.name || "Someone"} followed you`,
+        type: "follow",
+      })
+      toast.success("Followed user")
+    } catch (error) {
+      toast.error("Failed to follow user", {
+        description: error instanceof Error ? error.message : "Unknown error",
+      })
+    } finally {
+      setFollowBusy(false)
+    }
+  }
+
+  const handleUnfollowClick = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    setShowUnfollowDialog(true)
+  }
+
+  const handleConfirmUnfollow = async () => {
+    if (!post.authorId || !user || !accessToken) return
+    try {
+      setFollowBusy(true)
+      await unfollowUser(post.authorId, accessToken, user.id)
+      setIsFollowing(false)
+      setShowUnfollowDialog(false)
+      toast.success("Unfollowed user")
+    } catch (error) {
+      toast.error("Failed to unfollow user", {
+        description: error instanceof Error ? error.message : "Unknown error",
+      })
+    } finally {
+      setFollowBusy(false)
+    }
+  }
+
   return (
     <Card
       className="border border-gray-200 rounded-2xl shadow-sm cursor-pointer transition-all duration-200 hover:border-gray-300 hover:shadow-md group"
@@ -62,7 +145,7 @@ export function FeedPostCard({ post }: FeedPostCardProps) {
                   onClick={goProfile}
                   className="text-[15px] font-semibold text-[#141414] hover:text-[#036aff]"
                 >
-                  {post.author.studentCode ? `${post.author.name} - ${post.author.studentCode}` : post.author.name}
+                  {authorDisplay}
                 </button>
                 {post.author.isFriend && (
                   <Badge
@@ -71,6 +154,61 @@ export function FeedPostCard({ post }: FeedPostCardProps) {
                   >
                     Friend
                   </Badge>
+                )}
+                {!isOwner && accessToken && (
+                  <>
+                    <Button
+                      variant={isFollowing ? "outline" : "ghost"}
+                      size="sm"
+                      onClick={isFollowing ? handleUnfollowClick : handleFollow}
+                      disabled={followBusy}
+                      className={cn(
+                        "h-6 px-2 text-xs font-medium",
+                        isFollowing
+                          ? "border-gray-200 hover:bg-gray-50 text-gray-700"
+                          : "text-[#036aff] hover:text-[#024eba] hover:bg-[#036aff]/10"
+                      )}
+                    >
+                      {isFollowing ? (
+                        <>
+                          <UserCheck className="h-3 w-3 mr-1" />
+                          Following
+                        </>
+                      ) : (
+                        <>
+                          <UserPlus className="h-3 w-3 mr-1" />
+                          Follow
+                        </>
+                      )}
+                    </Button>
+                    <Dialog open={showUnfollowDialog} onOpenChange={setShowUnfollowDialog}>
+                      <DialogContent>
+                        <DialogHeader>
+                          <DialogTitle>Unfollow {authorDisplay}?</DialogTitle>
+                          <DialogDescription>
+                            You will no longer see posts from this user in your feed.
+                          </DialogDescription>
+                        </DialogHeader>
+                        <DialogFooter>
+                          <Button
+                            variant="outline"
+                            onClick={() => setShowUnfollowDialog(false)}
+                            disabled={followBusy}
+                          >
+                            Cancel
+                          </Button>
+                          <Button
+                            variant="default"
+                            onClick={handleConfirmUnfollow}
+                            disabled={followBusy}
+                            className="bg-red-600 hover:bg-red-700 text-white"
+                          >
+                            Unfollow
+                          </Button>
+                        </DialogFooter>
+                      </DialogContent>
+                    </Dialog>
+                  </>
                 )}
                 <span className="text-xs text-gray-500">·</span>
                 <span className="text-xs text-gray-500">{post.createdAt}</span>
@@ -207,6 +345,20 @@ export function FeedPostCard({ post }: FeedPostCardProps) {
             })}
           </div>
         )}
+
+        {/* Likes and Comments Counter */}
+        <div className="flex items-center gap-4 pt-2 border-t border-gray-100">
+          <div className="flex items-center gap-1.5 text-sm text-gray-600">
+            <Heart className="h-4 w-4" />
+            <span className="font-medium">{post.stats.likes}</span>
+            <span className="text-gray-500">likes</span>
+          </div>
+          <div className="flex items-center gap-1.5 text-sm text-gray-600">
+            <MessageCircle className="h-4 w-4" />
+            <span className="font-medium">{post.stats.comments}</span>
+            <span className="text-gray-500">comments</span>
+          </div>
+        </div>
         </CardContent>
       </Card>
   )

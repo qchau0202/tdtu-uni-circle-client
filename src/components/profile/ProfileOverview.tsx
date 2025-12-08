@@ -15,8 +15,9 @@ import {
 import { Input } from "@/components/ui/input"
 import { emptyProfileInfo, type ProfileInfo, type SocialLink } from "@/data/profile"
 import { useAuth } from "@/contexts/AuthContext"
-import { getProfileById, updateProfile, type BackendProfile } from "@/services/profile/profileService"
-import { Facebook, Instagram, Linkedin, Github, User, Mail, Phone, Calendar, UserCircle } from "lucide-react"
+import { getProfileById, updateProfile, followUser, unfollowUser, checkFollowStatus, type BackendProfile } from "@/services/profile/profileService"
+import { createNotification } from "@/services/notificationService"
+import { Facebook, Instagram, Linkedin, Github, User, Mail, Phone, Calendar, UserCircle, UserPlus, UserCheck } from "lucide-react"
 import { Link } from "react-router-dom"
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
@@ -70,6 +71,9 @@ export function ProfileOverview() {
   const [editLinkedin, setEditLinkedin] = useState("")
   const [editGithub, setEditGithub] = useState("")
   const [saving, setSaving] = useState(false)
+  const [isFollowing, setIsFollowing] = useState(false)
+  const [followBusy, setFollowBusy] = useState(false)
+  const [showUnfollowDialog, setShowUnfollowDialog] = useState(false)
 
   useEffect(() => {
     if (!viewingProfileId || !accessToken) return
@@ -132,6 +136,22 @@ export function ProfileOverview() {
       })
     }
   }, [user, accessToken])
+
+  // Check follow status when viewing another user's profile
+  useEffect(() => {
+    const loadFollowStatus = async () => {
+      if (!viewingProfileId || !user?.id || !accessToken || viewingProfileId === user.id) return
+      try {
+        const following = await checkFollowStatus(viewingProfileId, accessToken, user.id)
+        setIsFollowing(following)
+      } catch (error) {
+        console.error("Failed to check follow status:", error)
+      }
+    }
+    if (!viewingSelf && accessToken) {
+      loadFollowStatus()
+    }
+  }, [viewingProfileId, user?.id, accessToken, viewingSelf])
 
   const initials = user?.initials || profile.displayName.charAt(0).toUpperCase() || "U"
   const avatarSrc = profile.avatarUrl || user?.avatar || DEFAULT_AVATAR
@@ -234,6 +254,50 @@ export function ProfileOverview() {
     }
   }
 
+  const handleFollow = async () => {
+    if (!viewingProfileId || !user || !accessToken || viewingProfileId === user.id) return
+    try {
+      setFollowBusy(true)
+      await followUser(viewingProfileId, accessToken, user.id)
+      setIsFollowing(true)
+      // Send follow notification
+      await createNotification(accessToken, {
+        recipient_id: viewingProfileId,
+        sender_id: user.id,
+        title: `${user.name || "Someone"} followed you`,
+        type: "follow",
+      })
+      toast.success("Followed user")
+    } catch (error) {
+      toast.error("Failed to follow user", {
+        description: error instanceof Error ? error.message : "Unknown error",
+      })
+    } finally {
+      setFollowBusy(false)
+    }
+  }
+
+  const handleUnfollowClick = () => {
+    setShowUnfollowDialog(true)
+  }
+
+  const handleConfirmUnfollow = async () => {
+    if (!viewingProfileId || !user || !accessToken) return
+    try {
+      setFollowBusy(true)
+      await unfollowUser(viewingProfileId, accessToken, user.id)
+      setIsFollowing(false)
+      setShowUnfollowDialog(false)
+      toast.success("Unfollowed user")
+    } catch (error) {
+      toast.error("Failed to unfollow user", {
+        description: error instanceof Error ? error.message : "Unknown error",
+      })
+    } finally {
+      setFollowBusy(false)
+    }
+  }
+
   return (
     <div className="space-y-6">
       {/* Main Profile Card */}
@@ -261,14 +325,72 @@ export function ProfileOverview() {
                     )}
                   </div>
                   {accessToken && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="text-xs font-semibold text-[#141414] border-gray-200 hover:bg-[#f5f5f5]"
-                      onClick={handleOpenEdit}
-                    >
-                      Edit profile
-                    </Button>
+                    <div className="flex items-center gap-2">
+                      {viewingSelf ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="text-xs font-semibold text-[#141414] border-gray-200 hover:bg-[#f5f5f5]"
+                          onClick={handleOpenEdit}
+                        >
+                          Edit profile
+                        </Button>
+                      ) : (
+                        <>
+                          <Button
+                            variant={isFollowing ? "outline" : "default"}
+                            size="sm"
+                            onClick={isFollowing ? handleUnfollowClick : handleFollow}
+                            disabled={followBusy}
+                            className={cn(
+                              "text-xs font-semibold",
+                              isFollowing
+                                ? "border-gray-200 hover:bg-[#f5f5f5] text-[#141414]"
+                                : "bg-[#036aff] text-white hover:bg-[#024eba]"
+                            )}
+                          >
+                            {isFollowing ? (
+                              <>
+                                <UserCheck className="h-3 w-3 mr-1" />
+                                Following
+                              </>
+                            ) : (
+                              <>
+                                <UserPlus className="h-3 w-3 mr-1" />
+                                Follow
+                              </>
+                            )}
+                          </Button>
+                          <Dialog open={showUnfollowDialog} onOpenChange={setShowUnfollowDialog}>
+                            <DialogContent>
+                              <DialogHeader>
+                                <DialogTitle>Unfollow {displayName}?</DialogTitle>
+                                <DialogDescription>
+                                  You will no longer see posts from this user in your feed.
+                                </DialogDescription>
+                              </DialogHeader>
+                              <DialogFooter>
+                                <Button
+                                  variant="outline"
+                                  onClick={() => setShowUnfollowDialog(false)}
+                                  disabled={followBusy}
+                                >
+                                  Cancel
+                                </Button>
+                                <Button
+                                  variant="default"
+                                  onClick={handleConfirmUnfollow}
+                                  disabled={followBusy}
+                                  className="bg-red-600 hover:bg-red-700 text-white"
+                                >
+                                  Unfollow
+                                </Button>
+                              </DialogFooter>
+                            </DialogContent>
+                          </Dialog>
+                        </>
+                      )}
+                    </div>
                   )}
                 </div>
                 <div className="flex flex-wrap items-center gap-3 text-base text-gray-600">
