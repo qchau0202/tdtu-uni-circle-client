@@ -44,13 +44,14 @@ import { cn } from "@/lib/utils"
 import { toast } from "sonner"
 import { useAuth } from "@/contexts/AuthContext"
 import type { ResourceItem } from "@/data/resources"
-import { getResourceById, updateResource, deleteResource, deleteFile as deleteFileApi } from "@/services/resource/resourceService"
+import { getResourceById, updateResource, deleteResource } from "@/services/resource/resourceService"
 import { mapBackendResourceToItem } from "@/data/resources"
 import type { BackendResource } from "@/services/resource/resourceService"
 import {
-  getUserCollections,
+  getAllCollections,
+  getCollectionById,
   createCollection,
-  addItemToCollection,
+  updateCollection,
   type Collection,
 } from "@/services/collection/collectionService"
 
@@ -114,18 +115,18 @@ const ResourceDetailPage = () => {
   }
 
   useEffect(() => {
-    if (user) {
-      loadCollections()
-    }
+    if (!user) return
+    loadCollections()
   }, [user])
 
   const loadCollections = async () => {
     if (!user || !accessToken) return
     try {
-      const data = await getUserCollections(user.id, accessToken)
-      setCollections(data)
+      const data = await getAllCollections(accessToken)
+      const mine = data.filter((c) => c.owner_id === user.id)
+      setCollections(mine)
       const savedIds = new Set<string>()
-      data.forEach((collection) => {
+      mine.forEach((collection) => {
         collection.collection_items?.forEach((item) => {
           if (item.type === "RESOURCE" && item.reference_id) {
             savedIds.add(item.reference_id)
@@ -173,12 +174,17 @@ const ResourceDetailPage = () => {
         targetCollectionId = mainRepo.id
       }
 
-      await addItemToCollection(targetCollectionId, {
-        type: "RESOURCE",
-        reference_id: resource.id,
-      }, accessToken)
+      // Add resource by updating refs via updateCollection
+      const targetCollection = await getCollectionById(targetCollectionId, accessToken)
+      const currentRefs = targetCollection.collection_items
+        ?.map((item) => item.reference_id)
+        .filter(Boolean) as string[] || []
+      const nextRefs = currentRefs.includes(resource.id)
+        ? currentRefs
+        : [...currentRefs, resource.id]
+      await updateCollection(targetCollectionId, { refs: nextRefs }, accessToken)
 
-      const updatedCollections = await getUserCollections(user.id, accessToken)
+      const updatedCollections = (await getAllCollections(accessToken)).filter((c) => c.owner_id === user.id)
       setCollections(updatedCollections)
 
       const savedIds = new Set<string>()
@@ -385,24 +391,8 @@ const ResourceDetailPage = () => {
     }
   }
 
-  const handleDeleteFile = async (type: "files" | "images" | "videos" | "urls", index: number) => {
-    if (!id || !user || !accessToken) return
-
-    try {
-      setLoading(true)
-      const updated = await deleteFileApi(id, type, index, accessToken)
-      setBackendResource(updated)
-      const mappedResource = mapBackendResourceToItem(updated)
-      setResource(mappedResource)
-      toast.success("File deleted successfully!")
-    } catch (error) {
-      console.error("Delete file error:", error)
-      toast.error("Failed to delete file", {
-        description: error instanceof Error ? error.message : "Unknown error",
-      })
-    } finally {
-      setLoading(false)
-    }
+  const handleDeleteFile = async () => {
+    toast.info("Deleting individual files is not supported right now.")
   }
 
   if (fetching) {
@@ -680,7 +670,7 @@ const ResourceDetailPage = () => {
                                 type="button"
                                 onClick={(e) => {
                                   e.stopPropagation()
-                                  handleDeleteFile("images", idx)
+                                  handleDeleteFile()
                                 }}
                                 className="bg-red-600 text-white p-1.5 rounded-full hover:bg-red-700 shadow-md"
                                 disabled={loading}
@@ -747,7 +737,7 @@ const ResourceDetailPage = () => {
                                     variant="outline"
                                     size="sm"
                                     className="h-8 text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
-                                    onClick={() => handleDeleteFile("videos", idx)}
+                                    onClick={() => handleDeleteFile()}
                                     disabled={loading}
                                   >
                                     <Trash2 className="h-3.5 w-3.5" />
@@ -853,10 +843,7 @@ const ResourceDetailPage = () => {
                                       type="button"
                                       onClick={(e) => {
                                         e.stopPropagation()
-                                        const fileIndex = resource.media?.files?.findIndex((f: MediaFile) => f.url === doc.url) ?? -1
-                                        if (fileIndex >= 0) {
-                                          handleDeleteFile("files", fileIndex)
-                                        }
+                                        handleDeleteFile()
                                       }}
                                       className="bg-red-600 text-white p-1.5 rounded-full hover:bg-red-700 shadow-md"
                                       disabled={loading}
@@ -960,10 +947,7 @@ const ResourceDetailPage = () => {
                                       size="sm"
                                       className="h-8 text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
                                       onClick={() => {
-                                        const fileIndex = resource.media?.files?.findIndex((f: MediaFile) => f.url === doc.url) ?? -1
-                                        if (fileIndex >= 0) {
-                                          handleDeleteFile("files", fileIndex)
-                                        }
+                                        handleDeleteFile()
                                       }}
                                       disabled={loading}
                                     >

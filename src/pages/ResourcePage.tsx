@@ -20,9 +20,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import {
-  getUserCollections,
+  getAllCollections,
+  getCollectionById,
   createCollection,
-  addItemToCollection,
+  updateCollection,
   type Collection,
 } from "@/services/collection/collectionService"
 
@@ -37,7 +38,7 @@ const ResourcePage = () => {
   const [uploadTitle, setUploadTitle] = useState("")
   const [uploadCourse, setUploadCourse] = useState("")
   const [uploadDescription, setUploadDescription] = useState("")
-  const [resourceType, setResourceType] = useState<"url" | "document">("document")
+  const [uploadLink, setUploadLink] = useState("")
   const [uploadFiles, setUploadFiles] = useState<File[]>([])
   const [uploadTags, setUploadTags] = useState<string[]>([])
   const [tagInput, setTagInput] = useState("")
@@ -89,20 +90,20 @@ const ResourcePage = () => {
 
   // Load collections on mount
   useEffect(() => {
-    if (user) {
-      loadCollections()
-    }
+    if (!user) return
+    loadCollections()
   }, [user])
 
   const loadCollections = async () => {
     if (!user) return
     try {
       if (!accessToken) return
-      const data = await getUserCollections(user.id, accessToken)
-      setCollections(data)
+      const data = await getAllCollections(accessToken)
+      const mine = data.filter((c) => c.owner_id === user.id)
+      setCollections(mine)
       // Check which resources are already saved
       const savedIds = new Set<string>()
-      data.forEach((collection) => {
+      mine.forEach((collection) => {
         collection.collection_items?.forEach((item) => {
           if (item.type === "RESOURCE" && item.reference_id) {
             savedIds.add(item.reference_id)
@@ -162,13 +163,18 @@ const ResourcePage = () => {
         toast.error("Authentication required")
         return
       }
-      await addItemToCollection(targetCollectionId, {
-        type: "RESOURCE",
-        reference_id: selectedResourceId,
-      }, accessToken)
+      // Add resource by updating refs on the target collection
+      const targetCollection = await getCollectionById(targetCollectionId, accessToken)
+      const currentRefs = targetCollection.collection_items
+        ?.map((item) => item.reference_id)
+        .filter(Boolean) as string[] || []
+      const nextRefs = currentRefs.includes(selectedResourceId)
+        ? currentRefs
+        : [...currentRefs, selectedResourceId]
+      await updateCollection(targetCollectionId, { refs: nextRefs }, accessToken)
 
       // Reload collections to get updated data
-      const updatedCollections = await getUserCollections(user.id, accessToken)
+      const updatedCollections = (await getAllCollections(accessToken)).filter((c) => c.owner_id === user.id)
       setCollections(updatedCollections)
       
       // Check which resources are already saved
@@ -241,9 +247,12 @@ const ResourcePage = () => {
       return
     }
 
-    if (resourceType === "document" && uploadFiles.length === 0) {
-      toast.error("File required", {
-        description: "Please select at least one file to upload",
+    const link = uploadLink.trim()
+    const hasFiles = uploadFiles.length > 0
+
+    if (!hasFiles && !link) {
+      toast.error("File or link required", {
+        description: "Please upload at least one file or provide a link",
       })
       return
     }
@@ -255,9 +264,10 @@ const ResourcePage = () => {
           title: uploadTitle.trim(),
           description: uploadDescription.trim() || undefined,
           course_code: uploadCourse.trim() || undefined,
-          resource_type: resourceType === "url" ? "URL" : "DOCUMENT",
+          resource_type: hasFiles ? "DOCUMENT" : "URL",
           hashtags: uploadTags.length > 0 ? uploadTags : undefined,
-          files: resourceType === "document" && uploadFiles.length > 0 ? uploadFiles : undefined,
+          files: hasFiles ? uploadFiles : undefined,
+          linkUrl: !hasFiles ? link : undefined,
         },
         accessToken,
       )
@@ -267,13 +277,13 @@ const ResourcePage = () => {
 
       // Reset form
     setUploadTitle("")
-    setUploadCourse("")
-    setUploadDescription("")
+      setUploadCourse("")
+      setUploadDescription("")
+      setUploadLink("")
       setUploadFiles([])
       setUploadTags([])
       setTagInput("")
-      setResourceType("document")
-    setIsUploadOpen(false)
+      setIsUploadOpen(false)
 
     toast.success("Resource uploaded!", {
       description: `"${uploadTitle}" has been shared with your classmates`,
@@ -527,6 +537,13 @@ const ResourcePage = () => {
               value={uploadCourse}
               onChange={(e) => setUploadCourse(e.target.value)}
               placeholder="Course code (e.g. 503045)"
+              className="border-gray-200 text-base h-11"
+            />
+
+            <Input
+              value={uploadLink}
+              onChange={(e) => setUploadLink(e.target.value)}
+              placeholder="Link (optional) — add a URL if you want to share one"
               className="border-gray-200 text-base h-11"
             />
 

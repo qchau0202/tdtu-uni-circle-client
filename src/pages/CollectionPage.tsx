@@ -35,16 +35,11 @@ import { useAuth } from "@/contexts/AuthContext"
 import { resourceItems } from "@/data/resources"
 import { feedPosts, type FeedPost, type FeedComment } from "@/data/feed"
 import {
-  getUserCollections,
+  getAllCollections,
   getCollectionById,
   createCollection,
   updateCollection,
   deleteCollection,
-  addItemToCollection,
-  removeItemFromCollection,
-  updateCollectionItem,
-  searchCollections,
-  cloneCollection,
   type Collection,
   type CollectionItem,
   type CollectionItemType,
@@ -233,8 +228,9 @@ const CollectionPage = () => {
     if (!user || !accessToken) return
     try {
       setLoading(true)
-      const data = await getUserCollections(user.id, accessToken)
-      setCollections(data)
+      const data = await getAllCollections(accessToken)
+      const mine = data.filter((c) => c.owner_id === user.id)
+      setCollections(mine)
     } catch (error) {
       console.error("Failed to load collections:", error)
     } finally {
@@ -249,7 +245,13 @@ const CollectionPage = () => {
     }
     try {
       setLoading(true)
-      const results = await searchCollections(searchQuery, undefined, accessToken || undefined)
+      const all = await getAllCollections(accessToken || undefined)
+      const q = searchQuery.toLowerCase()
+      const results = all.filter((c) =>
+        (c.name && c.name.toLowerCase().includes(q)) ||
+        (c.description && c.description.toLowerCase().includes(q)) ||
+        (c.tags && c.tags.some((t) => t.toLowerCase().includes(q)))
+      )
       setSearchResults(results)
     } catch (error) {
       console.error("Failed to search collections:", error)
@@ -383,12 +385,20 @@ const CollectionPage = () => {
         toast.error("Authentication required")
         return
       }
-      await addItemToCollection(selectedCollection.id, {
-        type: itemType,
-        reference_id: referenceId,
-        url: itemType === "EXTERNAL" ? itemUrl : undefined,
-        private_note: itemPrivateNote || undefined,
-      }, accessToken)
+      // addItemToCollection was removed; update via updateCollection refs
+      const currentRefs = selectedCollection.collection_items
+        ?.map((item) => item.reference_id)
+        .filter(Boolean) as string[] || []
+
+      const newRef = itemType === "EXTERNAL" ? itemUrl : referenceId
+      if (!newRef) {
+        toast.error("Reference or URL is required")
+        return
+      }
+
+      const nextRefs = currentRefs.includes(newRef) ? currentRefs : [...currentRefs, newRef]
+      const updated = await updateCollection(selectedCollection.id, { refs: nextRefs }, accessToken)
+      setSelectedCollection(updated)
       loadMyCollections()
       setIsAddItemDialogOpen(false)
       resetItemForm()
@@ -424,11 +434,15 @@ const CollectionPage = () => {
         toast.error("Collection not found")
         return
       }
-      await removeItemFromCollection(itemCollection.id, item.reference_id, accessToken)
+      // Backend only supports full collection update; remove ref and save
+      const currentRefs = itemCollection.collection_items
+        ?.map((ci) => ci.reference_id)
+        .filter(Boolean) as string[] || []
+      const updatedRefs = currentRefs.filter((ref) => ref !== item.reference_id)
+      const updated = await updateCollection(itemCollection.id, { refs: updatedRefs }, accessToken)
       loadMyCollections()
-      if (selectedCollection) {
-        const fullCollection = getCollectionById(selectedCollection.id, user.id) || selectedCollection
-        setSelectedCollection(fullCollection)
+      if (selectedCollection && selectedCollection.id === itemCollection.id) {
+        setSelectedCollection(updated)
       }
       toast.success("Item removed")
     } catch (error) {
@@ -467,8 +481,8 @@ const CollectionPage = () => {
       toast.info("Item note updates are not yet supported by the backend")
       // await updateCollectionItem(editingItemId, itemCollection.id, editingItemNote, accessToken)
       loadMyCollections()
-      if (selectedCollection) {
-        const fullCollection = getCollectionById(selectedCollection.id, user.id) || selectedCollection
+      if (selectedCollection && accessToken) {
+        const fullCollection = await getCollectionById(selectedCollection.id, accessToken)
         setSelectedCollection(fullCollection)
       }
       setEditingItemId(null)
@@ -488,25 +502,8 @@ const CollectionPage = () => {
     setEditingItemNote("")
   }
 
-  const handleCloneCollection = async (collection: Collection) => {
-    if (!user) return
-
-    try {
-      setLoading(true)
-      if (!accessToken) {
-        toast.error("Authentication required")
-        return
-      }
-      const cloned = await cloneCollection(collection.id, `${collection.name} (Copy)`, accessToken)
-      setCollections([cloned, ...collections])
-      toast.success("Collection cloned successfully")
-    } catch (error) {
-      toast.error("Failed to clone collection", {
-        description: error instanceof Error ? error.message : "Unknown error",
-      })
-    } finally {
-      setLoading(false)
-    }
+  const handleCloneCollection = async () => {
+    toast.info("Cloning collections is not supported right now.")
   }
 
   const openCreateDialog = () => {
@@ -1075,7 +1072,7 @@ const CollectionPage = () => {
                               variant="outline"
                               size="sm"
                               className="border-[#036aff] text-[#036aff] hover:bg-[#036aff]/10 text-sm font-semibold"
-                              onClick={() => handleCloneCollection(collection)}
+                              onClick={handleCloneCollection}
                             >
                               <Copy className="h-4 w-4 mr-1" />
                               Clone

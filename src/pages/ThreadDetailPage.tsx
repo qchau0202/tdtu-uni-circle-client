@@ -61,8 +61,6 @@ export default function ThreadDetailPage() {
       const backendThread = await getThreadById(id, accessToken)
       const mappedThread = mapBackendThreadToFeedPost(backendThread, user?.id)
       setThread(mappedThread)
-      
-      // Load comments
       const backendComments = await getCommentsByThreadId(id, accessToken)
       const mappedComments = backendComments.map(mapBackendCommentToFeedComment)
       setComments(mappedComments)

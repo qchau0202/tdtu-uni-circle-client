@@ -155,23 +155,10 @@ async function handleResponse<T>(response: Response): Promise<T> {
 
 // Get all collections
 export async function getAllCollections(
-  accessToken?: string,
-  filters?: {
-    filter?: 'all' | 'my' | 'public';
-    is_public?: boolean;
-    tag?: string;
-    search?: string;
-  }
+  accessToken?: string
 ): Promise<Collection[]> {
   try {
-    const params = new URLSearchParams();
-    if (filters?.filter) params.append('filter', filters.filter);
-    if (filters?.is_public !== undefined) params.append('is_public', String(filters.is_public));
-    if (filters?.tag) params.append('tag', filters.tag);
-    if (filters?.search) params.append('search', filters.search);
-
-    const url = params.toString() ? `${API_BASE_URL}?${params.toString()}` : API_BASE_URL;
-    const response = await fetch(url, {
+    const response = await fetch(API_BASE_URL, {
       headers: getHeaders(accessToken),
     });
 
@@ -184,11 +171,6 @@ export async function getAllCollections(
     }
     throw new Error('Failed to fetch collections: Network error');
   }
-}
-
-// Get all collections for a user (convenience function)
-export async function getUserCollections(userId: string, accessToken?: string): Promise<Collection[]> {
-  return getAllCollections(accessToken, { filter: 'my' });
 }
 
 // Get collection by ID
@@ -289,133 +271,4 @@ export async function deleteCollection(id: string, accessToken: string): Promise
   }
 }
 
-// Add item to collection (by updating refs array)
-export async function addItemToCollection(
-  collectionId: string,
-  item: AddItemRequest,
-  accessToken: string
-): Promise<Collection> {
-  try {
-    // First, get the current collection
-    const currentCollection = await getCollectionById(collectionId, accessToken);
-    
-    // Determine the reference ID to add
-    const referenceId = item.reference_id || item.url || '';
-    if (!referenceId) {
-      throw new Error('reference_id or url is required');
-    }
-    
-    // Add the reference to the refs array if not already present
-    const currentRefs = currentCollection.collection_items?.map(item => item.reference_id).filter(Boolean) as string[] || [];
-    if (currentRefs.includes(referenceId)) {
-      // Item already exists, return current collection
-      return currentCollection;
-    }
-    
-    const updatedRefs = [...currentRefs, referenceId];
-    
-    // Update the collection with the new refs
-    return updateCollection(collectionId, { refs: updatedRefs }, accessToken);
-  } catch (error) {
-    console.error('Error adding item to collection:', error);
-    if (error instanceof Error) {
-      throw error;
-    }
-    throw new Error('Failed to add item to collection: Network error');
-  }
-}
-
-// Update collection item (note: backend doesn't support item-level updates, only refs)
-// This is a convenience function that would require fetching and updating the entire collection
-export async function updateCollectionItem(
-  itemId: string,
-  collectionId: string,
-  private_note: string,
-  accessToken: string
-): Promise<CollectionItem> {
-  // Note: Backend doesn't support item-level metadata like private_note
-  // This would need to be stored separately or the backend would need to support it
-  // For now, we'll just return a placeholder
-  throw new Error('Item-level updates are not supported by the backend. Use updateCollection instead.');
-}
-
-// Remove item from collection (by updating refs array)
-export async function removeItemFromCollection(
-  collectionId: string,
-  referenceId: string,
-  accessToken: string
-): Promise<Collection> {
-  try {
-    // Get the current collection
-    const currentCollection = await getCollectionById(collectionId, accessToken);
-    
-    // Remove the reference from the refs array
-    const currentRefs = currentCollection.collection_items?.map(item => item.reference_id).filter(Boolean) as string[] || [];
-    const updatedRefs = currentRefs.filter(ref => ref !== referenceId);
-    
-    // Update the collection with the updated refs
-    return updateCollection(collectionId, { refs: updatedRefs }, accessToken);
-  } catch (error) {
-    console.error('Error removing item from collection:', error);
-    if (error instanceof Error) {
-      throw error;
-    }
-    throw new Error('Failed to remove item from collection: Network error');
-  }
-}
-
-// Search collections
-export async function searchCollections(
-  query?: string,
-  tags?: string[],
-  accessToken?: string
-): Promise<Collection[]> {
-  try {
-    const params = new URLSearchParams();
-    if (query) params.append('search', query);
-    if (tags && tags.length > 0) {
-      tags.forEach(tag => params.append('tag', tag));
-    }
-    params.append('filter', 'public'); // Search only public collections
-
-    const response = await fetch(`${API_BASE_URL}?${params.toString()}`, {
-      headers: getHeaders(accessToken),
-    });
-
-    const data = await handleResponse<{ success: boolean; collections: BackendCollection[] }>(response);
-    return (data.collections || []).map(mapBackendToFrontend);
-  } catch (error) {
-    console.error('Error searching collections:', error);
-    if (error instanceof Error) {
-      throw error;
-    }
-    throw new Error('Failed to search collections: Network error');
-  }
-}
-
-// Clone collection (not directly supported by backend, would need to create new collection with same data)
-export async function cloneCollection(
-  id: string,
-  newName: string,
-  accessToken: string
-): Promise<Collection> {
-  try {
-    // Get the original collection
-    const original = await getCollectionById(id, accessToken);
-    
-    // Create a new collection with the same data but private
-    return createCollection({
-      name: newName || `${original.name} (Copy)`,
-      description: original.description || undefined,
-      visibility: 'PRIVATE',
-      tags: original.tags,
-      refs: original.collection_items?.map(item => item.reference_id).filter(Boolean) as string[] || [],
-    }, accessToken);
-  } catch (error) {
-    console.error('Error cloning collection:', error);
-    if (error instanceof Error) {
-      throw error;
-    }
-    throw new Error('Failed to clone collection: Network error');
-  }
-}
+// Update collection is used for all changes (name, visibility, refs)

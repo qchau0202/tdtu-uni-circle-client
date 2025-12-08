@@ -1,5 +1,5 @@
 const RESOURCE_BASE_URL =
-  import.meta.env.VITE_RESOURCE_SERVICE_URL || "http://localhost:3004/api/resources"
+  import.meta.env.VITE_RESOURCE_SERVICE_URL || "http://localhost:3005/api/resources"
 
 const API_KEY = import.meta.env.VITE_API_KEY || ""
 
@@ -47,6 +47,7 @@ export interface CreateResourcePayload {
   resource_type: "URL" | "DOCUMENT"
   hashtags?: string[]
   files?: File[]
+  linkUrl?: string
 }
 
 export interface UpdateResourcePayload {
@@ -94,9 +95,11 @@ async function handleResourceResponse<T>(response: Response): Promise<T> {
   }
 
   if (!response.ok) {
-    const message =
-      (data && (data.error?.message || data.message)) ||
-      `HTTP ${response.status} – Resource request failed`
+    const messageParts = [
+      data?.error?.message || data?.message,
+      data?.error?.details,
+    ].filter(Boolean)
+    const message = messageParts.join(" - ") || `HTTP ${response.status} – Resource request failed`
     const error = new Error(message) as Error & { status?: number; code?: string }
     error.status = response.status
     error.code = data?.error?.code
@@ -138,29 +141,61 @@ export async function createResource(
   payload: CreateResourcePayload,
   accessToken: string,
 ): Promise<BackendResource> {
-  const formData = new FormData()
-  formData.append("title", payload.title)
-  if (payload.description) formData.append("description", payload.description)
-  if (payload.course_code) formData.append("course_code", payload.course_code)
-  formData.append("resource_type", payload.resource_type)
-  if (payload.hashtags && payload.hashtags.length > 0) {
-    formData.append("hashtags", JSON.stringify(payload.hashtags))
+  const hasFiles = !!payload.files && payload.files.length > 0
+  const hasLink = !!payload.linkUrl
+
+  if (!hasFiles && !hasLink) {
+    throw new Error("At least one file or link is required")
   }
 
-  // Add files if provided
-  if (payload.files && payload.files.length > 0) {
-    payload.files.forEach((file) => {
+  // If we have files, use multipart/form-data (backend expects multer)
+  if (hasFiles) {
+    const formData = new FormData()
+    formData.append("title", payload.title)
+    if (payload.description) formData.append("description", payload.description)
+    if (payload.course_code) formData.append("course_code", payload.course_code)
+    formData.append("resource_type", payload.resource_type)
+    if (payload.hashtags && payload.hashtags.length > 0) {
+      formData.append("hashtags", JSON.stringify(payload.hashtags))
+    }
+    payload.files!.forEach((file) => {
       formData.append("files", file)
     })
+
+    const res = await fetch(RESOURCE_BASE_URL, {
+      method: "POST",
+      headers: {
+        ...authHeaders(accessToken),
+        // Don't set Content-Type header - browser will set it with boundary for form-data
+      },
+      body: formData,
+    })
+
+    return handleResourceResponse<BackendResource>(res)
+  }
+
+  // Otherwise, send JSON with media.urls
+  const body = {
+    title: payload.title,
+    description: payload.description ?? null,
+    course_code: payload.course_code ?? null,
+    resource_type: payload.resource_type,
+    hashtags: payload.hashtags ?? [],
+    media: {
+      files: [],
+      images: [],
+      videos: [],
+      urls: payload.linkUrl ? [{ url: payload.linkUrl }] : [],
+    },
   }
 
   const res = await fetch(RESOURCE_BASE_URL, {
     method: "POST",
     headers: {
       ...authHeaders(accessToken),
-      // Don't set Content-Type header - browser will set it with boundary for form-data
+      "Content-Type": "application/json",
     },
-    body: formData,
+    body: JSON.stringify(body),
   })
 
   return handleResourceResponse<BackendResource>(res)
@@ -286,37 +321,3 @@ export async function deleteResource(
     throw new Error(message)
   }
 }
-
-export async function deleteFile(
-  resourceId: string,
-  type: "files" | "images" | "videos" | "urls",
-  index: number,
-  accessToken: string,
-): Promise<BackendResource> {
-  const res = await fetch(`${RESOURCE_BASE_URL}/${resourceId}/${type}/${index}`, {
-    method: "DELETE",
-    headers: authHeaders(accessToken),
-  })
-
-  return handleResourceResponse<BackendResource>(res)
-}
-
-export async function updateFileMetadata(
-  resourceId: string,
-  type: "files" | "images" | "videos" | "urls",
-  index: number,
-  caption: string,
-  accessToken: string,
-): Promise<BackendResource> {
-  const res = await fetch(`${RESOURCE_BASE_URL}/${resourceId}/${type}/${index}`, {
-    method: "PATCH",
-    headers: {
-      ...authHeaders(accessToken),
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ caption }),
-  })
-
-  return handleResourceResponse<BackendResource>(res)
-}
-

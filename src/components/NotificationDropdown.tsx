@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react"
-import { Bell, Check, X, UserPlus2, Users } from "lucide-react"
+import { Bell, X } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -9,10 +9,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { useAuth } from "@/contexts/AuthContext"
 import {
-  getNotifications,
-  getUnreadCount,
-  markAsRead,
-  markAllAsRead,
+  fetchNotifications,
   deleteNotification,
   type Notification,
 } from "@/services/notificationService"
@@ -20,20 +17,29 @@ import { useNavigate } from "react-router-dom"
 import { cn } from "@/lib/utils"
 
 export function NotificationDropdown() {
-  const { user } = useAuth()
+  const { user, accessToken } = useAuth()
   const navigate = useNavigate()
   const [notifications, setNotifications] = useState<Notification[]>([])
-  const [unreadCount, setUnreadCount] = useState(0)
+  const unreadCount = notifications.length
 
   const loadNotifications = () => {
-    if (!user) return
-    const notifs = getNotifications(user.studentId)
-    setNotifications(notifs.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()))
-    setUnreadCount(getUnreadCount(user.studentId))
+    if (!user || !accessToken) return
+    fetchNotifications(accessToken)
+      .then((notifs) => {
+        setNotifications(notifs.sort((a, b) => {
+          const aDate = new Date((a.created_at as string) || "").getTime() || 0
+          const bDate = new Date((b.created_at as string) || "").getTime() || 0
+          return bDate - aDate
+        }))
+      })
+      .catch((err) => {
+        console.error("Failed to load notifications:", err)
+        setNotifications([])
+      })
   }
 
   useEffect(() => {
-    if (!user) return
+    if (!user || !accessToken) return
     loadNotifications()
 
     // Listen for notification events
@@ -41,58 +47,25 @@ export function NotificationDropdown() {
       loadNotifications()
     }
 
-    window.addEventListener("notification-added", handleNotificationUpdate)
-    window.addEventListener("notification-updated", handleNotificationUpdate)
-
-    // Poll for updates (for cross-browser testing)
-    const interval = setInterval(loadNotifications, 2000)
-
     return () => {
-      window.removeEventListener("notification-added", handleNotificationUpdate)
-      window.removeEventListener("notification-updated", handleNotificationUpdate)
-      clearInterval(interval)
     }
-  }, [user])
+  }, [user, accessToken])
 
   const handleNotificationClick = (notification: Notification) => {
-    if (!notification.read) {
-      markAsRead(user!.studentId, notification.id)
-      loadNotifications()
-    }
-    if (notification.link) {
-      navigate(notification.link)
-    }
-  }
-
-  const handleMarkAllRead = () => {
-    if (user) {
-      markAllAsRead(user.studentId)
-      loadNotifications()
+    if (notification && (notification as any).link) {
+      navigate((notification as any).link)
     }
   }
 
   const handleDelete = (e: React.MouseEvent, notificationId: string) => {
     e.stopPropagation()
-    if (user) {
-      deleteNotification(user.studentId, notificationId)
-      loadNotifications()
-    }
+    if (!user || !accessToken) return
+    deleteNotification(accessToken, notificationId)
+      .then(loadNotifications)
+      .catch((err) => console.error("Failed to delete notification:", err))
   }
 
-  const getNotificationIcon = (type: Notification["type"]) => {
-    switch (type) {
-      case "invitation":
-        return <UserPlus2 className="h-4 w-4 text-[#036aff]" />
-      case "join_request":
-        return <Users className="h-4 w-4 text-yellow-600" />
-      case "request_accepted":
-        return <Check className="h-4 w-4 text-green-600" />
-      case "request_rejected":
-        return <X className="h-4 w-4 text-red-600" />
-      default:
-        return <Bell className="h-4 w-4 text-gray-600" />
-    }
-  }
+  const getNotificationIcon = () => <Bell className="h-4 w-4 text-gray-600" />
 
   const formatTime = (dateString: string) => {
     const date = new Date(dateString)
@@ -126,16 +99,6 @@ export function NotificationDropdown() {
       <DropdownMenuContent align="end" className="w-80 bg-white border border-gray-200 rounded-lg shadow-lg p-0">
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
           <h3 className="text-sm font-semibold text-[#141414]">Notifications</h3>
-          {unreadCount > 0 && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleMarkAllRead}
-              className="text-xs h-7 px-2"
-            >
-              Mark all read
-            </Button>
-          )}
         </div>
         <div className="max-h-96 overflow-y-auto">
           {notifications.length === 0 ? (
@@ -161,9 +124,7 @@ export function NotificationDropdown() {
                         <p className="text-xs text-gray-600 mt-0.5">{notification.message}</p>
                         <p className="text-[10px] text-gray-400 mt-1">{formatTime(notification.createdAt)}</p>
                       </div>
-                      {!notification.read && (
-                        <div className="h-2 w-2 rounded-full bg-[#036aff] shrink-0 mt-1" />
-                      )}
+                      {/* Read state not supported in API; badge omitted */}
                       <Button
                         variant="ghost"
                         size="sm"

@@ -84,4 +84,45 @@ export async function updateProfile(
   return handleProfileResponse(res)
 }
 
+export async function createProfile(
+  payload: UpdateProfilePayload,
+  accessToken: string,
+): Promise<BackendProfile> {
+  const res = await fetch(`${PROFILE_BASE_URL}`, {
+    method: "POST",
+    headers: authHeaders(accessToken),
+    body: JSON.stringify(payload),
+  })
+
+  return handleProfileResponse(res)
+}
+
+export async function followUser(
+  id: string,
+  accessToken: string,
+): Promise<void> {
+  const res = await fetch(`${PROFILE_BASE_URL}/following/${id}`, {
+    method: "POST",
+    headers: authHeaders(accessToken),
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(text || "Failed to follow user")
+  }
+}
+
+export async function unfollowUser(
+  id: string,
+  accessToken: string,
+): Promise<void> {
+  const res = await fetch(`${PROFILE_BASE_URL}/following/${id}`, {
+    method: "PUT",
+    headers: authHeaders(accessToken),
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(text || "Failed to unfollow user")
+  }
+}
+
 

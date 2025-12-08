@@ -81,30 +81,6 @@ export async function apiRegister(
   return handleResponse<RegisterResponse>(res)
 }
 
-export async function apiMe(accessToken: string): Promise<{ user: BackendUser }> {
-  const res = await fetch(`${AUTH_BASE_URL}/me`, {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-    },
-  })
-
-  // Return status code along with data for better error handling
-  const contentType = res.headers.get("content-type")
-  const isJson = contentType && contentType.includes("application/json")
-  const data = isJson ? await res.json() : null
-
-  if (!res.ok) {
-    const message =
-      (data && (data.error?.message || data.message)) ||
-      `HTTP ${res.status} – Authentication request failed`
-    const error = new Error(message) as Error & { status?: number }
-    error.status = res.status
-    throw error
-  }
-
-  return data as { user: BackendUser }
-}
-
 export async function apiRefreshToken(
   refreshToken: string,
 ): Promise<{ session: AuthSession }> {
@@ -119,18 +95,4 @@ export async function apiRefreshToken(
   return handleResponse<{ session: AuthSession }>(res)
 }
 
-export async function apiLogout(accessToken: string): Promise<void> {
-  const res = await fetch(`${AUTH_BASE_URL}/logout`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-    },
-  })
-
-  // Best-effort: even if this fails, we'll clear client session
-  if (!res.ok) {
-    // Don't throw to avoid blocking logout UX
-    // eslint-disable-next-line no-console
-    console.warn("Auth logout request failed", res.status)
-  }
-}
+// Logout endpoint removed on backend; client just clears local state now.

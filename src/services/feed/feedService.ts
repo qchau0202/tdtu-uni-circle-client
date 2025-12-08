@@ -304,26 +304,6 @@ export async function getAllThreads(
   }
 }
 
-export async function getThreadById(
-  threadId: string,
-  accessToken: string
-): Promise<BackendThread> {
-  try {
-    const response = await fetch(`${API_BASE_URL}/threads/${threadId}`, {
-      headers: getHeaders(accessToken),
-    });
-    
-    const data = await handleResponse<{ success: boolean; thread: BackendThread }>(response);
-    return data.thread;
-  } catch (error) {
-    console.error('Error fetching thread:', error);
-    if (error instanceof Error) {
-      throw error;
-    }
-    throw new Error('Failed to fetch thread: Network error');
-  }
-}
-
 export interface CreateThreadRequest {
   content: string;
   tags?: string[];
@@ -411,6 +391,27 @@ export async function deleteThread(
       throw error;
     }
     throw new Error('Failed to delete thread: Network error');
+  }
+}
+
+export async function getThreadById(
+  threadId: string,
+  accessToken: string
+): Promise<BackendThread> {
+  try {
+    const response = await fetch(`${API_BASE_URL}/threads/${threadId}`, {
+      method: 'POST',
+      headers: getHeaders(accessToken),
+    });
+    
+    const data = await handleResponse<{ success: boolean; thread: BackendThread }>(response);
+    return data.thread;
+  } catch (error) {
+    console.error('Error fetching thread:', error);
+    if (error instanceof Error) {
+      throw error;
+    }
+    throw new Error('Failed to fetch thread: Network error');
   }
 }
 

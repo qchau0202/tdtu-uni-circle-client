@@ -3,9 +3,7 @@ import { useNavigate } from "react-router-dom"
 import {
   apiLogin,
   apiRegister,
-  apiMe,
   apiRefreshToken,
-  apiLogout,
   type AuthSession,
   type BackendUser,
 } from "@/services/auth/authService"
@@ -82,7 +80,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  // Load user & session from localStorage on mount and verify via /me if possible
+  // Load user & session from localStorage on mount
   useEffect(() => {
     const storedUser = localStorage.getItem("unicircle_user")
     const storedSession = localStorage.getItem("unicircle_session")
@@ -108,55 +106,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    // Optionally validate token with backend
-    const validate = async () => {
-      if (!parsedSession?.access_token) return
-      try {
-        const me = await apiMe(parsedSession.access_token)
-        const mapped = buildUserFromBackend(me.user)
-        setUser(mapped)
-        localStorage.setItem("unicircle_user", JSON.stringify(mapped))
-      } catch (err: any) {
-        // Only clear tokens if we get a 401 (Unauthorized) - token is invalid/expired
-        // Don't clear on network errors or other issues (500, 503, etc.)
-        const status = err?.status || (err as Response)?.status
-        if (status === 401) {
-          // Try to refresh the token before clearing
-          if (parsedSession?.refresh_token) {
-            try {
-              console.log("Access token expired, attempting to refresh...")
-              const refreshed = await apiRefreshToken(parsedSession.refresh_token)
-              setSession(refreshed.session)
-              localStorage.setItem("unicircle_session", JSON.stringify(refreshed.session))
-              
-              // Retry getting user info with new token
-              const me = await apiMe(refreshed.session.access_token)
-              const mapped = buildUserFromBackend(me.user)
-              setUser(mapped)
-              localStorage.setItem("unicircle_user", JSON.stringify(mapped))
-              console.log("Token refreshed successfully")
-              return
-            } catch (refreshErr) {
-              console.error("Token refresh failed, clearing auth:", refreshErr)
-            }
-          }
-          
-          // If refresh failed or no refresh token, clear everything
-          console.error("Token invalid or expired, clearing auth:", err)
-          setUser(null)
-          setSession(null)
-          localStorage.removeItem("unicircle_user")
-          localStorage.removeItem("unicircle_session")
-        } else {
-          // For other errors (network, server down, etc.), keep the session
-          // User can still use the app with cached data, and we'll retry on next mount
-          console.warn("Failed to validate session (non-401 error), keeping cached session:", err)
-        }
-      }
-    }
-
-    // Fire and forget
-    void validate()
   }, [])
 
   const login = async (email: string, password: string): Promise<boolean> => {
@@ -195,17 +144,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   const logout = () => {
-    const accessToken = session?.access_token
-
     setUser(null)
     setSession(null)
     localStorage.removeItem("unicircle_user")
     localStorage.removeItem("unicircle_session")
-
-    if (accessToken) {
-      // best-effort; don't await to avoid blocking UX
-      void apiLogout(accessToken)
-    }
 
     navigate("/auth")
   }
