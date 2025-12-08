@@ -1,5 +1,5 @@
 // Backend collection service API client
-const API_BASE_URL = import.meta.env.VITE_COLLECTION_SERVICE_URL || 'http://localhost:3005/api/collections';
+const API_BASE_URL = import.meta.env.VITE_COLLECTION_SERVICE_URL || 'http://localhost:3006/api/collection';
 const API_KEY = import.meta.env.VITE_API_KEY || '';
 
 export type CollectionItemType = 'RESOURCE' | 'THREAD' | 'COMMENT' | 'EXTERNAL';

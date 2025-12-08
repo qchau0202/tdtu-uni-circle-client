@@ -15,6 +15,8 @@ import {
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
 import { useAuth } from "@/contexts/AuthContext"
+import { followUser, unfollowUser } from "@/services/profile/profileService"
+import { createNotification } from "@/services/notificationService"
 import {
   getThreadById,
   getCommentsByThreadId,
@@ -47,8 +49,11 @@ export default function ThreadDetailPage() {
   const [replyingToCommentId, setReplyingToCommentId] = useState<string | null>(null)
   const [replyText, setReplyText] = useState("")
   const [isPostingReply, setIsPostingReply] = useState(false)
+  const [editThreadTitle, setEditThreadTitle] = useState("")
   const [editThreadText, setEditThreadText] = useState("")
   const [showEditForm, setShowEditForm] = useState(false)
+  const [isFollowingAuthor, setIsFollowingAuthor] = useState(false)
+  const [followBusy, setFollowBusy] = useState(false)
 
   const loadThread = async () => {
     if (!id || !accessToken) {
@@ -61,14 +66,46 @@ export default function ThreadDetailPage() {
       const backendThread = await getThreadById(id, accessToken)
       const mappedThread = mapBackendThreadToFeedPost(backendThread, user?.id)
       setThread(mappedThread)
+      setEditThreadTitle(mappedThread.title)
+      setEditThreadText(mappedThread.content)
       const backendComments = await getCommentsByThreadId(id, accessToken)
       const mappedComments = backendComments.map(mapBackendCommentToFeedComment)
+      mappedComments.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
       setComments(mappedComments)
     } catch (error) {
       console.error("Failed to load thread:", error)
       setThread(null)
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleToggleFollow = async () => {
+    if (!thread || !thread.authorId || !user || !accessToken || thread.authorId === user.id) return
+    try {
+      setFollowBusy(true)
+      if (isFollowingAuthor) {
+        await unfollowUser(thread.authorId, accessToken)
+        setIsFollowingAuthor(false)
+        toast.success("Unfollowed user")
+      } else {
+        await followUser(thread.authorId, accessToken)
+        setIsFollowingAuthor(true)
+        // fire follow notification to recipient
+        await createNotification(accessToken, {
+          recipient_id: thread.authorId,
+          sender_id: user.id,
+          title: `${user.name || "Someone"} followed you`,
+          type: "follow",
+        })
+        toast.success("Followed user")
+      }
+    } catch (error) {
+      toast.error("Failed to update follow", {
+        description: error instanceof Error ? error.message : "Unknown error",
+      })
+    } finally {
+      setFollowBusy(false)
     }
   }
 
@@ -140,6 +177,7 @@ export default function ThreadDetailPage() {
       // Reload comments to get updated data
       const backendComments = await getCommentsByThreadId(id, accessToken)
       const mappedComments = backendComments.map(mapBackendCommentToFeedComment)
+      mappedComments.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
       setComments(mappedComments)
       setEditingCommentId(null)
       setEditingCommentText("")
@@ -174,12 +212,12 @@ export default function ThreadDetailPage() {
 
   const handleEditThread = async () => {
     if (!thread || !id || !accessToken) return
-    if (!editThreadText.trim()) {
+    if (!editThreadTitle.trim() || !editThreadText.trim()) {
       return
     }
 
     try {
-      await updateThread(id, { content: editThreadText.trim() }, accessToken)
+      await updateThread(id, { title: editThreadTitle.trim(), content: editThreadText.trim() }, accessToken)
       await loadThread()
       toast.success("Thread updated")
       setShowEditForm(false)
@@ -324,7 +362,7 @@ export default function ThreadDetailPage() {
           {/* Header meta */}
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-start gap-3">
-              <Avatar className="h-11 w-11">
+              <Avatar className="h-11 w-11 cursor-pointer" onClick={() => thread.authorId && navigate(`/profile/${thread.authorId}`)}>
                 <AvatarImage src={DEFAULT_AVATAR} alt="Avatar" className="object-cover" />
                 <AvatarFallback className="bg-gradient-to-br from-[#036aff] to-[#0052cc] text-white text-base font-semibold">
                   {thread.author.initials}
@@ -332,9 +370,13 @@ export default function ThreadDetailPage() {
               </Avatar>
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
-                  <span className="text-base font-semibold text-[#141414]">
-                    {thread.author.name}
-                  </span>
+                  <button
+                    type="button"
+                    onClick={() => thread.authorId && navigate(`/profile/${thread.authorId}`)}
+                    className="text-base font-semibold text-[#141414] hover:text-[#036aff]"
+                  >
+                    {thread.author.studentCode ? `${thread.author.name} - ${thread.author.studentCode}` : thread.author.name}
+                  </button>
                   {thread.author.isFriend && (
                     <span className="rounded-full bg-[#f5f5f5] px-2.5 py-0.5 text-[11px] font-medium text-gray-600">
                       Friend
@@ -361,7 +403,23 @@ export default function ThreadDetailPage() {
               </div>
             </div>
             <div className="flex flex-col items-end gap-2">
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-2">
+                {!isOwner && thread.authorId && (
+                  <Button
+                    variant={isFollowingAuthor ? "outline" : "default"}
+                    size="sm"
+                    className={cn(
+                      "h-8 px-3",
+                      isFollowingAuthor
+                        ? "border-gray-200 text-gray-700 bg-white hover:bg-gray-50"
+                        : "bg-[#036aff] hover:bg-[#0257d1]"
+                    )}
+                    disabled={followBusy}
+                    onClick={handleToggleFollow}
+                  >
+                    {isFollowingAuthor ? "Unfollow" : "Follow"}
+                  </Button>
+                )}
                 <Badge className="bg-[#036aff0f] text-[#036aff] border-[#036aff26] text-[11px] font-semibold px-2 py-0.5 rounded-full">
                   {thread.threadType === "Q&A" ? "Q&A thread" : "Discussion"}
                 </Badge>
@@ -391,11 +449,12 @@ export default function ThreadDetailPage() {
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-9 w-9 text-gray-500 hover:text-[#141414]"
-                      onClick={() => {
-                        const combined = `${thread.title}${thread.content ? `\n\n${thread.content}` : ""}`.trim()
-                        setEditThreadText(combined)
-                      }}
+                    className="h-9 w-9 text-gray-500 hover:text-[#141414]"
+                    onClick={() => {
+                      setEditThreadTitle(thread.title)
+                      setEditThreadText(thread.content)
+                      setShowEditForm((prev) => !prev)
+                    }}
                     >
                       <MoreHorizontal className="h-5 w-5" />
                     </Button>
@@ -404,10 +463,14 @@ export default function ThreadDetailPage() {
                     align="end"
                     className="w-48 bg-white border border-gray-200 shadow-lg rounded-lg z-50"
                   >
-                    <DropdownMenuItem
-                      className="flex items-center gap-2 text-sm font-medium"
-                      onClick={() => setShowEditForm((prev) => !prev)}
-                    >
+                  <DropdownMenuItem
+                    className="flex items-center gap-2 text-sm font-medium"
+                    onClick={() => {
+                      setEditThreadTitle(thread.title)
+                      setEditThreadText(thread.content)
+                      setShowEditForm((prev) => !prev)
+                    }}
+                  >
                       <Pencil className="h-4 w-4" />
                       Edit thread
                     </DropdownMenuItem>
@@ -424,14 +487,61 @@ export default function ThreadDetailPage() {
             </div>
           </div>
 
-          {showEditForm && (
-            <div className="rounded-lg border border-gray-200 bg-white p-4 space-y-2">
-              <textarea
-                value={editThreadText}
-                onChange={(e) => setEditThreadText(e.target.value)}
-                rows={5}
-                className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#036aff]/20"
-              />
+          {showEditForm ? (
+            <div className="rounded-lg border border-gray-200 bg-white p-4 space-y-3">
+              <div className="space-y-2">
+                <label className="text-xs font-semibold text-gray-600">Title</label>
+                <input
+                  value={editThreadTitle}
+                  onChange={(e) => setEditThreadTitle(e.target.value)}
+                  className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#036aff]/20"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs font-semibold text-gray-600">Content</label>
+                <textarea
+                  value={editThreadText}
+                  onChange={(e) => setEditThreadText(e.target.value)}
+                  rows={5}
+                  className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#036aff]/20"
+                />
+              </div>
+              {thread.media.length > 0 && (
+                <div className="space-y-2">
+                  <div className="text-xs font-semibold text-gray-600">Current attachments</div>
+                  <div
+                    className={cn(
+                      "overflow-hidden rounded-xl border border-gray-200 bg-white",
+                      thread.media.length === 1 ? "grid grid-cols-1" : "grid grid-cols-2 gap-0.5",
+                    )}
+                  >
+                    {thread.media.map((item) => {
+                      if (item.type === "image" && item.url) {
+                        return (
+                          <div key={item.id} className="relative">
+                            <img
+                              src={item.url}
+                              alt="Attachment"
+                              className="w-full h-full object-cover"
+                              style={{ transform: "scale(0.75)", transformOrigin: "center" }}
+                            />
+                          </div>
+                        )
+                      }
+                      return (
+                        <div
+                          key={item.id}
+                          className="relative flex aspect-video items-center justify-center text-sm font-semibold text-white"
+                          style={{ backgroundColor: item.thumbColor }}
+                        >
+                          <span className="z-10">{item.label}</span>
+                          <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/25 to-transparent" />
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
               <div className="flex justify-end gap-2">
                 <Button variant="ghost" onClick={() => setShowEditForm(false)} className="text-gray-600">
                   Cancel
@@ -441,83 +551,85 @@ export default function ThreadDetailPage() {
                 </Button>
               </div>
             </div>
-          )}
+          ) : (
+            <>
+              <Separator />
 
-          <Separator />
+              {/* Title + body */}
+              <div className="space-y-2">
+                <h1 className="text-2xl font-semibold text-[#141414] leading-snug">
+                  {thread.title}
+                  {thread.isEdited && (
+                    <span className="ml-2 text-sm font-normal text-gray-400">(Edited)</span>
+                  )}
+                </h1>
+                <p className="text-base text-gray-800 leading-relaxed whitespace-pre-line">
+                  {thread.content}
+                </p>
+              </div>
 
-          {/* Title + body */}
-          <div className="space-y-2">
-            <h1 className="text-2xl font-semibold text-[#141414] leading-snug">
-              {thread.title}
-              {thread.isEdited && (
-                <span className="ml-2 text-sm font-normal text-gray-400">(Edited)</span>
+              {/* Media */}
+              {thread.media.length > 0 && (
+                <div
+                  className={cn(
+                    "overflow-hidden rounded-xl border border-gray-200 bg-white",
+                    thread.media.length === 1 ? "grid grid-cols-1" : "grid grid-cols-2 gap-0.5",
+                  )}
+                >
+                  {thread.media.map((item) => {
+                    if (item.type === "image" && item.url) {
+                      return (
+                        <div key={item.id} className="relative">
+                          <img
+                            src={item.url}
+                            alt="Attachment"
+                            className="w-full h-full object-cover"
+                            style={{ transform: "scale(0.75)", transformOrigin: "center" }}
+                          />
+                        </div>
+                      )
+                    }
+
+                    // Fallback for videos or missing URLs
+                    return (
+                      <div
+                        key={item.id}
+                        className="relative flex aspect-video items-center justify-center text-sm font-semibold text-white"
+                        style={{ backgroundColor: item.thumbColor }}
+                      >
+                        <span className="z-10">{item.label}</span>
+                        <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/25 to-transparent" />
+                      </div>
+                    )
+                  })}
+                </div>
               )}
-            </h1>
-            <p className="text-base text-gray-800 leading-relaxed whitespace-pre-line">
-              {thread.content}
-            </p>
-          </div>
 
-          {/* Media */}
-          {thread.media.length > 0 && (
-            <div
-              className={cn(
-                "overflow-hidden rounded-xl border border-gray-200 bg-white",
-                thread.media.length === 1 ? "grid grid-cols-1" : "grid grid-cols-2 gap-0.5",
-              )}
-            >
-              {thread.media.map((item) => {
-                if (item.type === "image" && item.url) {
-                  return (
-                    <div key={item.id} className="relative">
-                      <img
-                        src={item.url}
-                        alt="Attachment"
-                        className="w-full h-full object-cover"
-                        style={{ transform: "scale(0.75)", transformOrigin: "center" }}
-                      />
-                    </div>
-                  )
-                }
-
-                // Fallback for videos or missing URLs
-                return (
-                  <div
-                    key={item.id}
-                    className="relative flex aspect-video items-center justify-center text-sm font-semibold text-white"
-                    style={{ backgroundColor: item.thumbColor }}
+              {/* Actions summary */}
+              <div className="flex items-center justify-between pt-1">
+                <div className="flex items-center gap-4 text-sm text-gray-500">
+                  <span>{thread.stats.likes} likes</span>
+                  <span>{thread.stats.comments} comments</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className={cn(
+                      "h-9 px-3 text-sm font-semibold",
+                      isThreadLiked ? "text-red-500" : "text-[#141414]"
+                    )}
+                    onClick={toggleThreadLike}
                   >
-                    <span className="z-10">{item.label}</span>
-                    <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/25 to-transparent" />
-                  </div>
-                )
-              })}
-            </div>
+                    <Heart
+                      className={cn("mr-1.5 h-4 w-4", isThreadLiked ? "fill-red-500" : "")}
+                    />
+                    {isThreadLiked ? "Liked" : "Like"}
+                  </Button>
+                </div>
+              </div>
+            </>
           )}
-
-          {/* Actions summary */}
-          <div className="flex items-center justify-between pt-1">
-            <div className="flex items-center gap-4 text-sm text-gray-500">
-              <span>{thread.stats.likes} likes</span>
-              <span>{thread.stats.comments} comments</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="ghost"
-                size="sm"
-                className={cn(
-                  "h-9 px-3 text-sm font-semibold",
-                  isThreadLiked ? "text-red-500" : "text-[#141414]"
-                )}
-                onClick={toggleThreadLike}
-              >
-                <Heart
-                  className={cn("mr-1.5 h-4 w-4", isThreadLiked ? "fill-red-500" : "")}
-                />
-                {isThreadLiked ? "Liked" : "Like"}
-              </Button>
-            </div>
-          </div>
         </CardContent>
       </Card>
         </div>

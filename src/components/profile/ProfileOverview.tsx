@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { useParams } from "react-router-dom"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
@@ -49,10 +50,13 @@ const formatDate = (dateString: string): string => {
 
 export function ProfileOverview() {
   const { user, accessToken } = useAuth()
+  const { id: profileIdParam } = useParams<{ id: string }>()
   const DEFAULT_AVATAR = "/UniCircle_logo-removebg.png"
   const [profile, setProfile] = useState<ProfileInfo>(emptyProfileInfo)
   const [loading, setLoading] = useState(false)
   const [isEditOpen, setIsEditOpen] = useState(false)
+  const viewingProfileId = profileIdParam || user?.id || ""
+  const viewingSelf = !profileIdParam || profileIdParam === user?.id
 
   const [editDisplayName, setEditDisplayName] = useState("")
   const [editDob, setEditDob] = useState("")
@@ -68,9 +72,9 @@ export function ProfileOverview() {
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
-    if (!user || !accessToken) return
+    if (!viewingProfileId || !accessToken) return
     setLoading(true)
-    getProfileById(user.id, accessToken)
+    getProfileById(viewingProfileId, accessToken)
       .then((backend: BackendProfile) => {
         let socialLinks: SocialLink[] = []
         if (Array.isArray(backend.social_links)) {
@@ -84,27 +88,27 @@ export function ProfileOverview() {
 
         setProfile({
           id: backend.id,
-          studentId: backend.student_id || user.studentId || "",
-          displayName: backend.display_name || user.name || "",
+          studentId: backend.student?.student_code || backend.student_id || user?.studentId || "",
+          displayName: backend.display_name || user?.name || "",
           dob: backend.dob || "",
           phoneNumber: backend.phone_number || "",
-          faculty: backend.faculty || user.facultyCode || "",
+          faculty: backend.faculty || user?.facultyCode || "",
           bio: backend.bio || "",
-          academicYear: backend.academic_year || user.academicYear || "",
-          avatarUrl: backend.avatar_url || user.avatar || "",
+          academicYear: backend.academic_year || user?.academicYear || "",
+          avatarUrl: backend.avatar_url || user?.avatar || "",
           socialLinks,
           updatedAt: backend.updated_at || "",
-          email: user.email,
+          email: backend.student?.email || user?.email || "",
         })
       })
       .catch((err) => {
         console.error("Failed to load profile:", err)
         // Fallback to basic auth user info if profile API fails
-        if (user) {
+        if (user && viewingSelf) {
           setProfile({
             ...emptyProfileInfo,
             id: user.id,
-            studentId: user.studentId,
+            studentId: user.studentId || "",
             displayName: user.name,
             academicYear: user.academicYear || "",
             faculty: user.facultyCode || "",
@@ -116,7 +120,7 @@ export function ProfileOverview() {
   }, [user, accessToken])
 
   useEffect(() => {
-    if (user && !accessToken) {
+    if (user && !accessToken && viewingSelf) {
       setProfile({
         ...emptyProfileInfo,
         id: user.id,
@@ -141,6 +145,7 @@ export function ProfileOverview() {
   const bio = profile.bio || "None"
 
   const handleOpenEdit = () => {
+    if (!viewingSelf) return
     setEditDisplayName(profile.displayName || user?.name || "")
     setEditDob(profile.dob || "")
     setEditPhoneNumber(profile.phoneNumber || "")
@@ -159,7 +164,7 @@ export function ProfileOverview() {
   }
 
   const handleSaveProfile = async () => {
-    if (!user || !accessToken) {
+    if (!user || !accessToken || !viewingSelf) {
       toast.error("You must be logged in to update your profile")
       return
     }

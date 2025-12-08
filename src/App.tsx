@@ -34,6 +34,7 @@ function App() {
           <Route path="/resources" element={<div><h1>Resources</h1></div>} />
           <Route path="/chat" element={<ChatPage />} />
           <Route path="/profile" element={<ProfilePage />} />
+          <Route path="/profile/:id" element={<ProfilePage />} />
         </Route>
       </Route>
       

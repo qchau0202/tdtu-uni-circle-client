@@ -7,7 +7,7 @@ export interface Notification {
   created_at?: string
 }
 
-const API_BASE = import.meta.env.VITE_NOTIFICATION_SERVICE_URL || "http://localhost:3005/api/notifications"
+const API_BASE = import.meta.env.VITE_NOTIFICATION_SERVICE_URL || "http://localhost:3002/api/notifications"
 
 const jsonHeaders = (accessToken?: string) => ({
   "Content-Type": "application/json",

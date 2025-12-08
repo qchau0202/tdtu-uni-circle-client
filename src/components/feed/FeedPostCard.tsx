@@ -32,6 +32,14 @@ export function FeedPostCard({ post }: FeedPostCardProps) {
   const snippet =
     post.content.length > 200 ? `${post.content.slice(0, 200).trimEnd()}…` : post.content
 
+  const goProfile = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    const profileId = (post as any).authorId || (post as any).author_id
+    if (profileId) {
+      navigate(`/profile/${profileId}`)
+    }
+  }
+
   return (
     <Card
       className="border border-gray-200 rounded-2xl shadow-sm cursor-pointer transition-all duration-200 hover:border-gray-300 hover:shadow-md group"
@@ -41,7 +49,7 @@ export function FeedPostCard({ post }: FeedPostCardProps) {
         {/* Header */}
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-start gap-3 flex-1 min-w-0">
-            <Avatar className="h-10 w-10 shrink-0">
+            <Avatar className="h-10 w-10 shrink-0 cursor-pointer" onClick={goProfile}>
               <AvatarImage src={DEFAULT_AVATAR} alt="Avatar" className="object-cover" />
               <AvatarFallback className="bg-gradient-to-br from-[#036aff] to-[#0052cc] text-white text-sm font-semibold">
                 {post.author.initials}
@@ -49,9 +57,13 @@ export function FeedPostCard({ post }: FeedPostCardProps) {
             </Avatar>
             <div className="flex-1 min-w-0 space-y-1">
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-[15px] font-semibold text-[#141414]">
-                  {post.author.name}
-                </span>
+                <button
+                  type="button"
+                  onClick={goProfile}
+                  className="text-[15px] font-semibold text-[#141414] hover:text-[#036aff]"
+                >
+                  {post.author.studentCode ? `${post.author.name} - ${post.author.studentCode}` : post.author.name}
+                </button>
                 {post.author.isFriend && (
                   <Badge
                     variant="outline"

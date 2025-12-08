@@ -79,6 +79,7 @@ export interface FeedPost {
   id: string;
   author: {
     name: string;
+    studentCode?: string;
     initials: string;
     isFriend: boolean;
   };
@@ -210,6 +211,7 @@ export function mapBackendThreadToFeedPost(thread: BackendThread, _currentUserId
   
   // Get author info
   const authorName = thread.author?.name || thread.author?.student_code || 'Unknown';
+  const authorStudentCode = thread.author?.student_code;
   const initials = authorName
     .split(' ')
     .map(n => n[0]?.toUpperCase() || '')
@@ -221,6 +223,7 @@ export function mapBackendThreadToFeedPost(thread: BackendThread, _currentUserId
     id: thread.id,
     author: {
       name: authorName,
+      studentCode: authorStudentCode,
       initials,
       isFriend: false, // TODO: Implement friend checking
     },
@@ -341,6 +344,7 @@ export async function createThread(
 }
 
 export interface UpdateThreadRequest {
+  title?: string;
   content?: string;
   tags?: string[];
   visibility?: 'public' | 'private';

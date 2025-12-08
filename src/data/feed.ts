@@ -29,6 +29,7 @@ export interface FeedPost {
   id: string
   author: {
     name: string
+    studentCode?: string
     initials: string
     isFriend: boolean
   }
