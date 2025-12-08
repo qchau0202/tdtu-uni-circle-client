@@ -49,6 +49,7 @@ const formatDate = (dateString: string): string => {
 
 export function ProfileOverview() {
   const { user, accessToken } = useAuth()
+  const DEFAULT_AVATAR = "/UniCircle_logo-removebg.png"
   const [profile, setProfile] = useState<ProfileInfo>(emptyProfileInfo)
   const [loading, setLoading] = useState(false)
   const [isEditOpen, setIsEditOpen] = useState(false)
@@ -129,7 +130,7 @@ export function ProfileOverview() {
   }, [user, accessToken])
 
   const initials = user?.initials || profile.displayName.charAt(0).toUpperCase() || "U"
-  const avatarSrc = profile.avatarUrl || user?.avatar
+  const avatarSrc = profile.avatarUrl || user?.avatar || DEFAULT_AVATAR
   const displayName = profile.displayName || user?.name || "None"
   const studentId = profile.studentId || user?.studentId || "None"
   const faculty = profile.faculty || "None"
@@ -236,7 +237,7 @@ export function ProfileOverview() {
           {/* Header Section */}
           <div className="flex flex-col sm:flex-row gap-6">
             <Avatar className="h-24 w-24">
-              <AvatarImage src={avatarSrc} alt={displayName} />
+              <AvatarImage src={avatarSrc} alt={displayName} className="object-cover" />
               <AvatarFallback className="bg-[#f5f5f5] text-[#141414] text-2xl font-semibold">
                 {initials}
               </AvatarFallback>

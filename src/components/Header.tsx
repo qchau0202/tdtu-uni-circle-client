@@ -22,6 +22,7 @@ interface HeaderProps {
 export function Header({ isSidebarCollapsed, onToggleSidebar }: HeaderProps) {
   const navigate = useNavigate()
   const { user, logout } = useAuth()
+  const DEFAULT_AVATAR = "/UniCircle_logo-removebg.png"
 
   const handleLogout = () => {
     logout()
@@ -66,7 +67,7 @@ export function Header({ isSidebarCollapsed, onToggleSidebar }: HeaderProps) {
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" className="flex items-center gap-2 h-auto p-2">
                 <Avatar className="h-10 w-10">
-                  <AvatarImage src={user?.avatar} alt={user?.name} />
+                  <AvatarImage src={user?.avatar || DEFAULT_AVATAR} alt={user?.name || "Avatar"} className="object-cover" />
                   <AvatarFallback className="bg-[#f5f5f5] text-[#141414] text-base">
                     {user?.initials || "U"}
                   </AvatarFallback>

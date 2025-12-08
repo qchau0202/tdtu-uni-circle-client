@@ -69,9 +69,6 @@ const ResourcePage = () => {
       setResources(mappedResources)
     } catch (error) {
       console.error("Failed to fetch resources:", error)
-      toast.error("Failed to load resources", {
-        description: error instanceof Error ? error.message : "Unknown error",
-      })
       // Set empty array on error so UI still renders
       setResources([])
     } finally {

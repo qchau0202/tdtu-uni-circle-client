@@ -237,9 +237,6 @@ const CollectionPage = () => {
       setCollections(data)
     } catch (error) {
       console.error("Failed to load collections:", error)
-      toast.error("Failed to load collections", {
-        description: error instanceof Error ? error.message : "Unknown error",
-      })
     } finally {
       setLoading(false)
     }
@@ -255,9 +252,7 @@ const CollectionPage = () => {
       const results = await searchCollections(searchQuery, undefined, accessToken || undefined)
       setSearchResults(results)
     } catch (error) {
-      toast.error("Failed to search collections", {
-        description: error instanceof Error ? error.message : "Unknown error",
-      })
+      console.error("Failed to search collections:", error)
     } finally {
       setLoading(false)
     }

@@ -20,6 +20,7 @@ const menuItems = [
 
 export function Sidebar({ activeItem = "home", collapsed = false, onToggleCollapse }: SidebarProps) {
   const { user, logout } = useAuth()
+  const DEFAULT_AVATAR = "/UniCircle_logo-removebg.png"
 
   return (
     <aside
@@ -105,7 +106,7 @@ export function Sidebar({ activeItem = "home", collapsed = false, onToggleCollap
             <Link to="/profile">
               <div className="flex items-center gap-3">
                 <Avatar className="h-8 w-8">
-                  <AvatarImage src={user?.avatar} alt={user?.name} />
+                  <AvatarImage src={user?.avatar || DEFAULT_AVATAR} alt={user?.name || "Avatar"} className="object-cover" />
                   <AvatarFallback className="bg-[#f5f5f5] text-[#141414] text-sm">
                     {user?.initials || "U"}
                   </AvatarFallback>

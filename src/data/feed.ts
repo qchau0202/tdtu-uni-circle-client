@@ -7,6 +7,7 @@ export type ThreadStatus = "OPEN" | "CLOSED"
 export interface FeedMediaItem {
   id: string
   type: "image" | "video"
+  url?: string
   thumbColor: string
   label: string
 }
@@ -24,6 +25,7 @@ export interface FeedComment {
 }
 
 export interface FeedPost {
+  authorId: string
   id: string
   author: {
     name: string
