@@ -1,5 +1,5 @@
 // Backend collection service API client
-const API_BASE_URL = import.meta.env.VITE_COLLECTION_SERVICE_URL || 'http://localhost:3006/api/collection';
+const API_BASE_URL = import.meta.env.VITE_COLLECTION_SERVICE_URL || 'http://localhost:3006/api/collections';
 const API_KEY = import.meta.env.VITE_API_KEY || '';
 
 export type CollectionItemType = 'RESOURCE' | 'THREAD' | 'COMMENT' | 'EXTERNAL';
@@ -99,7 +99,7 @@ function mapBackendToFrontend(backend: BackendCollection): Collection {
 // Helper to map frontend collection to backend request
 function mapFrontendToBackend(collection: Partial<Collection>): Partial<BackendCollection> {
   const refs = collection.collection_items?.map(item => item.reference_id).filter(Boolean) as string[] || [];
-  
+
   return {
     name: collection.name,
     description: collection.description || null,
@@ -113,17 +113,17 @@ const getHeaders = (accessToken?: string) => {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   };
-  
+
   // Add API key if available
   if (API_KEY) {
     headers['x-api-key'] = API_KEY;
   }
-  
+
   // Add Bearer token for authentication
   if (accessToken) {
     headers['Authorization'] = `Bearer ${accessToken}`;
   }
-  
+
   return headers;
 };
 
@@ -136,7 +136,7 @@ async function handleResponse<T>(response: Response): Promise<T> {
     } catch {
       error = { error: { message: `HTTP ${response.status}: Request failed` } };
     }
-    
+
     if (response.status === 401) {
       throw new Error(error.error?.message || 'Authentication required');
     }
@@ -146,10 +146,10 @@ async function handleResponse<T>(response: Response): Promise<T> {
     if (response.status === 404) {
       throw new Error(error.error?.message || 'Resource not found');
     }
-    
+
     throw new Error(error.error?.message || `HTTP ${response.status}: Request failed`);
   }
-  
+
   return response.json();
 }
 

@@ -209,37 +209,37 @@ export async function updateResource(
   // Backend PUT route doesn't have multer middleware, but README says to use form-data
   // Backend checks: if (req.files || req.body.media) -> form-data mode
   // Otherwise: JSON mode (req.body is used directly)
-  
+
   // Strategy: Always use form-data when media is involved (per README)
   // Use JSON only when updating text fields without media
   const hasFiles = payload.files && payload.files.length > 0
   const hasMedia = payload.media !== undefined
-  
+
   if (hasFiles || hasMedia) {
     // Use form-data when uploading files or updating media (per README)
     // NOTE: Backend PUT route needs multer middleware to parse form-data
     // If backend doesn't have multer, this will fail
     const formData = new FormData()
-    
+
     // Always send title (must be non-empty for backend to add it)
     if (!payload.title || !payload.title.trim()) {
       throw new Error("Title is required for update")
     }
     formData.append("title", payload.title.trim())
-    
+
     // Always send description (backend checks !== undefined, can be empty string)
     formData.append("description", payload.description !== undefined ? payload.description : "")
-    
+
     // Send course_code if provided
     if (payload.course_code !== undefined && payload.course_code.trim()) {
       formData.append("course_code", payload.course_code.trim())
     }
-    
+
     // Send hashtags if provided (must be JSON string in form-data)
     if (payload.hashtags && Array.isArray(payload.hashtags) && payload.hashtags.length > 0) {
       formData.append("hashtags", JSON.stringify(payload.hashtags))
     }
-    
+
     // Always send media object (required for form-data mode per README)
     // Backend checks: if (req.body.media) -> enters form-data parsing mode
     // If media is provided, use it; otherwise send empty (backend will preserve existing)
@@ -272,7 +272,7 @@ export async function updateResource(
     // Use JSON when no files and no media updates
     // Backend checks: if (req.files || req.body.media) -> form-data mode
     // Otherwise: JSON mode (resourceData = req.body)
-    
+
     if (!payload.title || !payload.title.trim()) {
       throw new Error("Title is required for update")
     }
