@@ -104,12 +104,12 @@ export interface FeedPost {
 function formatRelativeTime(date: Date): string {
   const now = new Date()
   const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000)
-  
+
   if (diffInSeconds < 60) return 'Just now'
   if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)}m ago`
   if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)}h ago`
   if (diffInSeconds < 604800) return `${Math.floor(diffInSeconds / 86400)}d ago`
-  
+
   return date.toLocaleDateString('en-US', {
     month: 'short',
     day: 'numeric',
@@ -136,7 +136,7 @@ const handleResponse = async <T>(response: Response): Promise<T> => {
       const text = await response.text();
       error = { error: { message: `HTTP ${response.status}: ${text || 'Request failed'}` } };
     }
-    
+
     if (response.status === 401) {
       throw new Error('Authentication required. Please log in.');
     }
@@ -154,10 +154,10 @@ const handleResponse = async <T>(response: Response): Promise<T> => {
       }
       throw new Error(error.error?.message || 'Invalid request');
     }
-    
+
     throw new Error(error.error?.message || `HTTP ${response.status}: Request failed`);
   }
-  
+
   const data = await response.json();
   return data;
 };
@@ -185,17 +185,17 @@ export function mapBackendThreadToFeedPost(thread: BackendThread, _currentUserId
   }
   
   // Determine thread type from tags
-  const threadType: ThreadType = thread.tags?.some(tag => 
+  const threadType: ThreadType = thread.tags?.some(tag =>
     tag.toLowerCase().includes('q&a') || tag.toLowerCase().includes('qa') || tag.toLowerCase() === 'q&a'
   ) ? 'Q&A' : 'Normal';
-  
+
   // Get event tag if exists
-  const eventTag = thread.tags?.find(tag => 
-    !tag.toLowerCase().includes('q&a') && 
-    !tag.toLowerCase().includes('qa') && 
+  const eventTag = thread.tags?.find(tag =>
+    !tag.toLowerCase().includes('q&a') &&
+    !tag.toLowerCase().includes('qa') &&
     !tag.toLowerCase().includes('discussion')
   );
-  
+
   // Map attachments to media items
   const media: FeedMediaItem[] = [];
   if (thread.attachments?.images) {
@@ -219,7 +219,7 @@ export function mapBackendThreadToFeedPost(thread: BackendThread, _currentUserId
       });
     });
   }
-  
+
   // Get author info
   const authorName = thread.author?.name || '';
   const authorStudentCode = thread.author?.student_code || 'Unknown';
@@ -230,7 +230,7 @@ export function mapBackendThreadToFeedPost(thread: BackendThread, _currentUserId
     .map(n => n[0]?.toUpperCase() || '')
     .join('')
     .slice(0, 2) || 'U';
-  
+
   return {
     authorId: thread.author_id,
     id: thread.id,
@@ -265,7 +265,7 @@ export function mapBackendCommentToFeedComment(comment: BackendComment): FeedCom
     .map(n => n[0]?.toUpperCase() || '')
     .join('')
     .slice(0, 2) || 'U';
-  
+
   return {
     id: comment.id,
     author: authorName,
@@ -304,12 +304,12 @@ export async function getAllThreads(
     if (filters?.search) {
       params.append('search', filters.search);
     }
-    
+
     const url = `${API_BASE_URL}/threads${params.toString() ? `?${params.toString()}` : ''}`;
     const response = await fetch(url, {
       headers: getHeaders(accessToken),
     });
-    
+
     return handleResponse<{ success: boolean; count: number; threads: BackendThread[] }>(response);
   } catch (error) {
     console.error('Error fetching threads:', error);
@@ -338,13 +338,13 @@ export async function createThread(
   try {
     const headers = getHeaders(accessToken);
     const body = JSON.stringify(request);
-    
+
     const response = await fetch(`${API_BASE_URL}/threads`, {
       method: 'POST',
       headers,
       body,
     });
-    
+
     const data = await handleResponse<{ success: boolean; thread: BackendThread }>(response);
     return data.thread;
   } catch (error) {
@@ -379,7 +379,7 @@ export async function updateThread(
       headers: getHeaders(accessToken),
       body: JSON.stringify(request),
     });
-    
+
     const data = await handleResponse<{ success: boolean; thread: BackendThread }>(response);
     return data.thread;
   } catch (error) {
@@ -400,7 +400,7 @@ export async function deleteThread(
       method: 'DELETE',
       headers: getHeaders(accessToken),
     });
-    
+
     await handleResponse(response);
   } catch (error) {
     console.error('Error deleting thread:', error);
@@ -418,9 +418,10 @@ export async function getThreadById(
   try {
     const response = await fetch(`${API_BASE_URL}/threads/${threadId}`, {
       method: 'GET',
+      method: 'GET',
       headers: getHeaders(accessToken),
     });
-    
+
     const data = await handleResponse<{ success: boolean; thread: BackendThread }>(response);
     return data.thread;
   } catch (error) {
@@ -441,7 +442,7 @@ export async function closeThread(
       method: 'POST',
       headers: getHeaders(accessToken),
     });
-    
+
     const data = await handleResponse<{ success: boolean; thread: BackendThread }>(response);
     return data.thread;
   } catch (error) {
@@ -462,7 +463,7 @@ export async function reopenThread(
       method: 'POST',
       headers: getHeaders(accessToken),
     });
-    
+
     const data = await handleResponse<{ success: boolean; thread: BackendThread }>(response);
     return data.thread;
   } catch (error) {
@@ -484,7 +485,7 @@ export async function getCommentsByThreadId(
     const response = await fetch(`${API_BASE_URL}/threads/${threadId}/comments`, {
       headers: getHeaders(accessToken),
     });
-    
+
     const data = await handleResponse<{ success: boolean; count: number; comments: BackendComment[] }>(response);
     return data.comments;
   } catch (error) {
@@ -512,7 +513,7 @@ export async function createComment(
       headers: getHeaders(accessToken),
       body: JSON.stringify(request),
     });
-    
+
     const data = await handleResponse<{ success: boolean; comment: BackendComment }>(response);
     return data.comment;
   } catch (error) {
@@ -539,7 +540,7 @@ export async function updateComment(
       headers: getHeaders(accessToken),
       body: JSON.stringify(request),
     });
-    
+
     const data = await handleResponse<{ success: boolean; comment: BackendComment }>(response);
     return data.comment;
   } catch (error) {
@@ -560,7 +561,7 @@ export async function deleteComment(
       method: 'DELETE',
       headers: getHeaders(accessToken),
     });
-    
+
     await handleResponse(response);
   } catch (error) {
     console.error('Error deleting comment:', error);
@@ -579,7 +580,7 @@ export async function getDeletedThreads(
     const response = await fetch(`${API_BASE_URL}/threads/deleted`, {
       headers: getHeaders(accessToken),
     });
-    
+
     const data = await handleResponse<{ success: boolean; threads: BackendThread[] }>(response);
     return data.threads;
   } catch (error) {
@@ -601,7 +602,7 @@ export async function restoreThread(
       method: 'POST',
       headers: getHeaders(accessToken),
     });
-    
+
     const data = await handleResponse<{ success: boolean; thread: BackendThread }>(response);
     return data.thread;
   } catch (error) {
