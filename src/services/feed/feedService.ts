@@ -418,7 +418,6 @@ export async function getThreadById(
   try {
     const response = await fetch(`${API_BASE_URL}/threads/${threadId}`, {
       method: 'GET',
-      method: 'GET',
       headers: getHeaders(accessToken),
     });
 

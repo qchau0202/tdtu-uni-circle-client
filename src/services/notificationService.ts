@@ -1,8 +1,17 @@
 export interface Notification {
   id: string
+  recipient_id?: string
+  sender_id?: string
+  sender?: {
+    id?: string
+    display_name?: string
+    avatar_url?: string
+  }
   title?: string
   message?: string
-  type?: string
+  type?: 'thread_comment' | 'comment_reply' | 'follow' | 'mention' | 'like' | 'system'
+  reference_id?: string
+  reference_type?: string
   is_read?: boolean
   created_at?: string
 }

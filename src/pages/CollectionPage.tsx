@@ -854,23 +854,13 @@ const CollectionPage = () => {
       <div className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <h1 className="text-3xl font-bold text-[#141414]">My Collections</h1>
-          <div className="flex items-center gap-3">
-            <Button
-              variant="outline"
-              className="border-gray-200 text-sm font-semibold text-[#141414] hover:bg-[#f5f5f5] px-4 py-2"
-              onClick={openCreateDialog}
-            >
-              <Plus className="h-4 w-4 mr-2" />
-              Create
-            </Button>
-            <Button
-              className="bg-[#036aff] text-white font-bold hover:bg-[#036aff]/90 text-sm px-5 py-2.5"
-              onClick={openCreateDialog}
-            >
-              <Plus className="h-5 w-5 mr-2" />
-              New Collection
-            </Button>
-          </div>
+          <Button
+            className="bg-[#036aff] text-white font-bold hover:bg-[#036aff]/90 text-sm px-5 py-2.5"
+            onClick={openCreateDialog}
+          >
+            <Plus className="h-5 w-5 mr-2" />
+            New Collection
+          </Button>
         </div>
       </div>
 
