@@ -932,7 +932,11 @@ export default function ThreadDetailPage() {
                 )
               }
               
-              return topLevel.map((comment) => renderComment(comment))
+              return (
+                <>
+                  {topLevel.map((comment) => renderComment(comment))}
+                </>
+              )
             })()}
           </div>
         </CardContent>
