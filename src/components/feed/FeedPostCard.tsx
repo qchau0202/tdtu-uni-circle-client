@@ -16,7 +16,7 @@ import {
 import { cn } from "@/lib/utils"
 import { toast } from "sonner"
 import { useAuth } from "@/contexts/AuthContext"
-import { followUser, unfollowUser, checkFollowStatus } from "@/services/profile/profileService"
+import { followUser, unfollowUser } from "@/services/profile/profileService"
 import { createNotification } from "@/services/notificationService"
 import type { FeedPost } from "@/data/feed"
 
@@ -62,20 +62,6 @@ export function FeedPostCard({ post }: FeedPostCardProps) {
       navigate(`/profile/${profileId}`)
     }
   }
-
-  // Check follow status on mount
-  useEffect(() => {
-    const loadFollowStatus = async () => {
-      if (!post.authorId || !user?.id || !accessToken || post.authorId === user.id) return
-      try {
-        const following = await checkFollowStatus(post.authorId, accessToken, user.id)
-        setIsFollowing(following)
-      } catch (error) {
-        console.error("Failed to check follow status:", error)
-      }
-    }
-    loadFollowStatus()
-  }, [post.authorId, user?.id, accessToken])
 
   const handleFollow = async (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -318,10 +304,13 @@ export function FeedPostCard({ post }: FeedPostCardProps) {
               post.media.length === 1 ? "grid grid-cols-1" : "grid grid-cols-2 gap-1",
             )}
           >
-            {post.media.map((item) => {
+            {post.media.map((item, index) => {
+              // Use a combination of item.id and index to ensure unique keys
+              const uniqueKey = item.id ? `${item.id}-${index}` : `media-${index}`
+              
               if (item.type === "image" && item.url) {
                 return (
-                  <div key={item.id} className="relative overflow-hidden rounded-lg">
+                  <div key={uniqueKey} className="relative overflow-hidden rounded-lg">
                     <img
                       src={item.url}
                       alt="Attachment"
@@ -334,7 +323,7 @@ export function FeedPostCard({ post }: FeedPostCardProps) {
 
               return (
               <div
-                key={item.id}
+                key={uniqueKey}
                   className="relative flex aspect-video items-center justify-center text-sm font-semibold text-white overflow-hidden"
                 style={{ backgroundColor: item.thumbColor }}
               >

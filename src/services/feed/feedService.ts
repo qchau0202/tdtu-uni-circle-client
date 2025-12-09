@@ -5,6 +5,7 @@ const API_BASE_URL = import.meta.env.VITE_FEED_SERVICE_URL || 'http://localhost:
 export interface BackendThread {
   id: string;
   author_id: string;
+  title?: string | null;
   content: string;
   tags: string[];
   visibility: 'public' | 'private';
@@ -163,15 +164,25 @@ const handleResponse = async <T>(response: Response): Promise<T> => {
 
 // Map backend thread to frontend FeedPost
 export function mapBackendThreadToFeedPost(thread: BackendThread, _currentUserId?: string): FeedPost {
-  // Extract title from content (first line or first 50 chars)
-  const contentLines = thread.content.split('\n');
-  const firstLine = contentLines[0]?.trim() || '';
-  const title = firstLine.length > 0 && firstLine.length <= 100 
-    ? firstLine 
-    : thread.content.substring(0, 50).trim();
-  const content = contentLines.length > 1 
-    ? contentLines.slice(1).join('\n').trim() 
-    : (firstLine.length > 100 ? thread.content.trim() : '');
+  // Use title from backend if available, otherwise extract from content
+  let title: string;
+  let content: string;
+  
+  if (thread.title && thread.title.trim()) {
+    // Backend has a title field
+    title = thread.title.trim();
+    content = thread.content.trim();
+  } else {
+    // Fallback: Extract title from content (first line or first 50 chars)
+    const contentLines = thread.content.split('\n');
+    const firstLine = contentLines[0]?.trim() || '';
+    title = firstLine.length > 0 && firstLine.length <= 100 
+      ? firstLine 
+      : thread.content.substring(0, 50).trim();
+    content = contentLines.length > 1 
+      ? contentLines.slice(1).join('\n').trim() 
+      : (firstLine.length > 100 ? thread.content.trim() : '');
+  }
   
   // Determine thread type from tags
   const threadType: ThreadType = thread.tags?.some(tag => 
@@ -406,7 +417,7 @@ export async function getThreadById(
 ): Promise<BackendThread> {
   try {
     const response = await fetch(`${API_BASE_URL}/threads/${threadId}`, {
-      method: 'POST',
+      method: 'GET',
       headers: getHeaders(accessToken),
     });
     

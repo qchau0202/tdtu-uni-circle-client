@@ -22,6 +22,8 @@ import {
   Sparkles,
   Folder,
   MoreVertical,
+  Upload,
+  User,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
@@ -45,16 +47,19 @@ import {
   type CollectionItemType,
   type CollectionVisibility,
 } from "@/services/collection/collectionService"
+import { createResource } from "@/services/resource/resourceService"
 
 const CollectionPage = () => {
   const { user, accessToken } = useAuth()
   const navigate = useNavigate()
   const [collections, setCollections] = useState<Collection[]>([])
+  const [publicCollections, setPublicCollections] = useState<Collection[]>([])
   const [searchResults, setSearchResults] = useState<Collection[]>([])
   const [activeTab, setActiveTab] = useState<"my-collections" | "discover" | "bookmarks">("my-collections")
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid")
   const [resourceIndex, setResourceIndex] = useState<Record<string, (typeof resourceItems)[number]>>({})
   const [bookmarkedResources, setBookmarkedResources] = useState<(typeof resourceItems)[number][]>([])
+  const [bookmarkedCollections, setBookmarkedCollections] = useState<Collection[]>([])
   const [likedThreads, setLikedThreads] = useState<FeedPost[]>([])
   const [likedComments, setLikedComments] = useState<{ comment: FeedComment; thread: FeedPost }[]>([])
   const [bookmarkSearch, setBookmarkSearch] = useState("")
@@ -62,12 +67,14 @@ const CollectionPage = () => {
     resources: boolean
     threads: boolean
     comments: boolean
-  }>({ resources: true, threads: true, comments: true })
+    collections: boolean
+  }>({ resources: true, threads: true, comments: true, collections: true })
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedCollection, setSelectedCollection] = useState<Collection | null>(null)
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false)
   const [isAddItemDialogOpen, setIsAddItemDialogOpen] = useState(false)
+  const [isUploadDialogOpen, setIsUploadDialogOpen] = useState(false)
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false)
   const [loading, setLoading] = useState(false)
 
@@ -89,6 +96,13 @@ const CollectionPage = () => {
   const [selectedCommentId, setSelectedCommentId] = useState<string | null>(null)
   const [editingItemId, setEditingItemId] = useState<string | null>(null)
   const [editingItemNote, setEditingItemNote] = useState("")
+
+  // Upload form states
+  const [uploadFiles, setUploadFiles] = useState<File[]>([])
+  const [uploadUrls, setUploadUrls] = useState<string[]>([])
+  const [uploadDescription, setUploadDescription] = useState("")
+  const [uploadTitle, setUploadTitle] = useState("")
+  const [newUrlInput, setNewUrlInput] = useState("")
   const quickTagPresets = ["midterm", "final", "labs", "project", "reference", "notes"]
   const quickTemplates = [
     {
@@ -109,8 +123,16 @@ const CollectionPage = () => {
     if (user) {
       loadMyCollections()
       loadBookmarkData()
+      loadBookmarkedCollections()
     }
   }, [user])
+
+  // Load public collections when discover tab is active
+  useEffect(() => {
+    if (activeTab === "discover") {
+      loadPublicCollections()
+    }
+  }, [activeTab, accessToken])
 
   // Reset selections when item type changes
   useEffect(() => {
@@ -160,6 +182,37 @@ const CollectionPage = () => {
     }
   }
 
+  const saveBookmarkedCollectionIds = (ids: string[]) => {
+    try {
+      localStorage.setItem("unicircle_bookmarked_collections", JSON.stringify(ids))
+    } catch (error) {
+      console.error("Failed to save bookmarked collections:", error)
+    }
+  }
+
+  const getBookmarkedCollectionIds = (): string[] => {
+    return parseIdList("unicircle_bookmarked_collections")
+  }
+
+  const loadBookmarkedCollections = async () => {
+    if (!accessToken) return
+    try {
+      const bookmarkedIds = getBookmarkedCollectionIds()
+      if (bookmarkedIds.length === 0) {
+        setBookmarkedCollections([])
+        return
+      }
+      
+      // Fetch all public collections and filter by bookmarked IDs
+      const allPublic = await getAllCollections(accessToken, { filter: 'public' })
+      const bookmarked = allPublic.filter(c => bookmarkedIds.includes(c.id))
+      setBookmarkedCollections(bookmarked)
+    } catch (error) {
+      console.error("Failed to load bookmarked collections:", error)
+      setBookmarkedCollections([])
+    }
+  }
+
   const loadBookmarkData = (customResourceIndex?: Record<string, (typeof resourceItems)[number]>) => {
     if (!user) return
     const currentIndex = customResourceIndex || resourceIndex
@@ -187,7 +240,7 @@ const CollectionPage = () => {
     setLikedComments(mappedComments)
   }
 
-  const toggleBookmarkFilter = (key: "resources" | "threads" | "comments") => {
+  const toggleBookmarkFilter = (key: "resources" | "threads" | "comments" | "collections") => {
     setBookmarkFilters((prev) => ({
       ...prev,
       [key]: !prev[key],
@@ -224,13 +277,20 @@ const CollectionPage = () => {
         matchesSearch(thread.title))
   )
 
+  const filteredBookmarkedCollections = bookmarkedCollections.filter(
+    (collection) =>
+      bookmarkFilters.collections &&
+      (matchesSearch(collection.name) ||
+        matchesSearch(collection.description || "") ||
+        collection.tags.some((t) => matchesSearch(t)))
+  )
+
   const loadMyCollections = async () => {
     if (!user || !accessToken) return
     try {
       setLoading(true)
-      const data = await getAllCollections(accessToken)
-      const mine = data.filter((c) => c.owner_id === user.id)
-      setCollections(mine)
+      const data = await getAllCollections(accessToken, { filter: 'my' })
+      setCollections(data)
     } catch (error) {
       console.error("Failed to load collections:", error)
     } finally {
@@ -238,23 +298,41 @@ const CollectionPage = () => {
     }
   }
 
+  const loadPublicCollections = async () => {
+    try {
+      setLoading(true)
+      const data = await getAllCollections(accessToken || undefined, { filter: 'public' })
+      setPublicCollections(data)
+      // If there's no search query, show all public collections
+      if (!searchQuery.trim()) {
+        setSearchResults(data)
+      }
+    } catch (error) {
+      console.error("Failed to load public collections:", error)
+      setPublicCollections([])
+      setSearchResults([])
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const handleSearch = async () => {
     if (!searchQuery.trim()) {
-      setSearchResults([])
+      // If search is cleared, show all public collections
+      setSearchResults(publicCollections)
       return
     }
     try {
       setLoading(true)
-      const all = await getAllCollections(accessToken || undefined)
-      const q = searchQuery.toLowerCase()
-      const results = all.filter((c) =>
-        (c.name && c.name.toLowerCase().includes(q)) ||
-        (c.description && c.description.toLowerCase().includes(q)) ||
-        (c.tags && c.tags.some((t) => t.toLowerCase().includes(q)))
-      )
-      setSearchResults(results)
+      // Search only in public collections
+      const data = await getAllCollections(accessToken || undefined, { 
+        filter: 'public',
+        search: searchQuery.trim()
+      })
+      setSearchResults(data)
     } catch (error) {
       console.error("Failed to search collections:", error)
+      setSearchResults([])
     } finally {
       setLoading(false)
     }
@@ -502,8 +580,131 @@ const CollectionPage = () => {
     setEditingItemNote("")
   }
 
-  const handleCloneCollection = async () => {
-    toast.info("Cloning collections is not supported right now.")
+  const resetUploadForm = () => {
+    setUploadFiles([])
+    setUploadUrls([])
+    setUploadDescription("")
+    setUploadTitle("")
+    setNewUrlInput("")
+  }
+
+  const handleUploadToCollection = async () => {
+    if (!user || !selectedCollection || !accessToken) {
+      toast.error("Authentication required")
+      return
+    }
+
+    if (!uploadTitle.trim()) {
+      toast.error("Title is required")
+      return
+    }
+
+    if (uploadFiles.length === 0 && uploadUrls.length === 0) {
+      toast.error("Please upload at least one file or add a URL")
+      return
+    }
+
+    try {
+      setLoading(true)
+      const resourceIds: string[] = []
+
+      // Create resources for files
+      if (uploadFiles.length > 0) {
+        const resource = await createResource(
+          {
+            title: uploadTitle.trim(),
+            description: uploadDescription.trim() || undefined,
+            resource_type: "DOCUMENT",
+            files: uploadFiles,
+          },
+          accessToken
+        )
+        resourceIds.push(resource.id)
+      }
+
+      // Create resources for URLs
+      for (const url of uploadUrls) {
+        const resource = await createResource(
+          {
+            title: uploadTitle.trim() + (uploadUrls.length > 1 ? ` - ${url}` : ""),
+            description: uploadDescription.trim() || undefined,
+            resource_type: "URL",
+            linkUrl: url,
+          },
+          accessToken
+        )
+        resourceIds.push(resource.id)
+      }
+
+      // Add all resource IDs to collection's refs
+      const currentRefs = selectedCollection.collection_items
+        ?.map((item) => item.reference_id)
+        .filter(Boolean) as string[] || []
+      const updatedRefs = [...currentRefs, ...resourceIds]
+      const updated = await updateCollection(selectedCollection.id, { refs: updatedRefs }, accessToken)
+      
+      setSelectedCollection(updated)
+      loadMyCollections()
+      setIsUploadDialogOpen(false)
+      resetUploadForm()
+      toast.success("Items uploaded and added to collection")
+    } catch (error) {
+      console.error("Failed to upload to collection:", error)
+      toast.error("Failed to upload items", {
+        description: error instanceof Error ? error.message : "Unknown error",
+      })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleCloneCollection = async (collection: Collection) => {
+    if (!user || !accessToken) {
+      toast.error("Please log in to bookmark collections")
+      return
+    }
+
+    try {
+      setLoading(true)
+      
+      // Check if already bookmarked
+      const bookmarkedIds = getBookmarkedCollectionIds()
+      if (bookmarkedIds.includes(collection.id)) {
+        toast.info("This collection is already bookmarked")
+        return
+      }
+
+      // Add to bookmarked collections
+      const newBookmarkedIds = [...bookmarkedIds, collection.id]
+      saveBookmarkedCollectionIds(newBookmarkedIds)
+      
+      // Reload bookmarked collections
+      await loadBookmarkedCollections()
+      
+      toast.success("Collection bookmarked successfully", {
+        description: "You can view it in the Bookmarks tab"
+      })
+    } catch (error) {
+      console.error("Failed to bookmark collection:", error)
+      toast.error("Failed to bookmark collection", {
+        description: error instanceof Error ? error.message : "Unknown error"
+      })
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleUnbookmarkCollection = async (collectionId: string) => {
+    try {
+      const bookmarkedIds = getBookmarkedCollectionIds()
+      const newBookmarkedIds = bookmarkedIds.filter(id => id !== collectionId)
+      saveBookmarkedCollectionIds(newBookmarkedIds)
+      await loadBookmarkedCollections()
+      toast.success("Collection removed from bookmarks")
+    } catch (error) {
+      console.error("Failed to unbookmark collection:", error)
+      toast.error("Failed to remove bookmark")
+    }
   }
 
   const openCreateDialog = () => {
@@ -997,6 +1198,11 @@ const CollectionPage = () => {
                 <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-[#036aff] mb-4"></div>
                 <p className="text-base text-gray-500">Searching collections...</p>
               </div>
+            ) : loading && !searchQuery ? (
+              <div className="text-center py-16">
+                <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-[#036aff] mb-4"></div>
+                <p className="text-base text-gray-500">Loading public collections...</p>
+              </div>
             ) : searchResults.length === 0 && searchQuery ? (
               <Card className="border-2 border-dashed border-gray-200 rounded-xl">
                 <CardContent className="py-16 text-center">
@@ -1007,6 +1213,27 @@ const CollectionPage = () => {
                   <p className="text-base text-gray-500 max-w-md mx-auto">
                     Try different keywords or tags to find public collections shared by other students.
                   </p>
+                </CardContent>
+              </Card>
+            ) : searchResults.length === 0 && !searchQuery ? (
+              <Card className="border border-gray-200 rounded-xl shadow-sm">
+                <CardContent className="p-6">
+                  <div className="flex items-start gap-4">
+                    <div className="p-3 rounded-lg bg-blue-50">
+                      <Info className="h-6 w-6 text-blue-600" />
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="text-base font-semibold text-[#141414] mb-2">No Public Collections Yet</h3>
+                      <p className="text-sm text-gray-600 leading-relaxed mb-4">
+                        There are no public collections available at the moment. Be the first to share your collection!
+                      </p>
+                      <ul className="list-disc pl-5 text-sm text-gray-600 space-y-1.5">
+                        <li>Create a public collection to share with other students</li>
+                        <li>Search by collection name or tags to find specific topics</li>
+                        <li>Clone public collections to customize them for your needs</li>
+                      </ul>
+                    </div>
+                  </div>
                 </CardContent>
               </Card>
             ) : searchResults.length > 0 ? (
@@ -1020,24 +1247,41 @@ const CollectionPage = () => {
                     >
                       <CardContent className="p-6">
                         <div className="flex items-start justify-between gap-4 mb-4">
-                          <div className="p-3 rounded-xl bg-blue-50">
-                            <Folder className="h-8 w-8 text-blue-600" />
+                          <div className="flex items-start gap-4 flex-1 min-w-0">
+                            <div className="p-3 rounded-xl bg-blue-50 shrink-0">
+                              <Folder className="h-8 w-8 text-blue-600" />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <h3 className="text-lg font-semibold text-[#141414] mb-1 line-clamp-1">
+                                {collection.name}
+                              </h3>
+                              {collection.description && (
+                                <p className="text-sm text-gray-600 line-clamp-2 leading-relaxed">
+                                  {collection.description}
+                                </p>
+                              )}
+                              {/* Owner Information */}
+                              {collection.owner && (
+                                <div className="mt-2 flex items-center gap-2 text-sm text-gray-500">
+                                  <span>Created by</span>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      navigate(`/profile/${collection.owner!.id}`)
+                                    }}
+                                    className="font-semibold text-[#141414] hover:text-[#036aff] transition-colors"
+                                  >
+                                    {collection.owner.student_code || collection.owner.display_name || "Unknown"}
+                                  </button>
+                                </div>
+                              )}
+                            </div>
                           </div>
-                          <Badge variant="outline" className="border-green-200 text-green-700 bg-green-50 text-xs px-2.5 py-1">
+                          <Badge variant="outline" className="border-green-200 text-green-700 bg-green-50 text-xs px-2.5 py-1 shrink-0">
                             <Globe2 className="h-3 w-3 mr-1" />
                             PUBLIC
                           </Badge>
                         </div>
-
-                        <h3 className="text-lg font-semibold text-[#141414] mb-2 line-clamp-1">
-                          {collection.name}
-                        </h3>
-                        
-                        {collection.description && (
-                          <p className="text-sm text-gray-600 line-clamp-2 mb-4 leading-relaxed">
-                            {collection.description}
-                          </p>
-                        )}
 
                         <div className="space-y-3 pt-4 border-t border-gray-100">
                           <div className="flex items-center justify-between text-sm">
@@ -1072,10 +1316,20 @@ const CollectionPage = () => {
                               variant="outline"
                               size="sm"
                               className="border-[#036aff] text-[#036aff] hover:bg-[#036aff]/10 text-sm font-semibold"
-                              onClick={handleCloneCollection}
+                              onClick={() => handleCloneCollection(collection)}
+                              disabled={loading || getBookmarkedCollectionIds().includes(collection.id)}
                             >
-                              <Copy className="h-4 w-4 mr-1" />
-                              Clone
+                              {getBookmarkedCollectionIds().includes(collection.id) ? (
+                                <>
+                                  <Bookmark className="h-4 w-4 mr-1" />
+                                  Bookmarked
+                                </>
+                              ) : (
+                                <>
+                                  <Copy className="h-4 w-4 mr-1" />
+                                  Bookmark
+                                </>
+                              )}
                             </Button>
                           </div>
                         </div>
@@ -1098,8 +1352,8 @@ const CollectionPage = () => {
                       </p>
                       <ul className="list-disc pl-5 text-sm text-gray-600 space-y-1.5">
                         <li>Use tags like "Java" or "Web Dev" to find specific topics</li>
-                        <li>Clone public collections to customize them for your needs</li>
-                        <li>Private collections are only visible to their owners</li>
+                        <li>Bookmark public collections to save them for later viewing</li>
+                        <li>Bookmarked collections are read-only - you can view but not edit them</li>
                       </ul>
                     </div>
                   </div>
@@ -1117,13 +1371,13 @@ const CollectionPage = () => {
               <div>
                 <h2 className="text-2xl font-bold text-[#141414] mb-1">Your Bookmarks</h2>
                 <p className="text-sm text-gray-600">
-                  Resources you bookmarked, threads and comments you liked
+                  Resources, collections, threads and comments you bookmarked or liked
                 </p>
               </div>
               <div className="flex items-center gap-2 px-4 py-2 bg-gray-50 rounded-lg border border-gray-200">
                 <Bookmark className="h-4 w-4 text-[#036aff]" />
                 <span className="text-sm font-semibold text-[#141414]">
-                  {bookmarkedResources.length + likedThreads.length + likedComments.length} total
+                  {bookmarkedResources.length + likedThreads.length + likedComments.length + bookmarkedCollections.length} total
                 </span>
               </div>
             </div>
@@ -1180,10 +1434,23 @@ const CollectionPage = () => {
                   <MessageCircle className="h-4 w-4 inline mr-2" />
                   Comments ({likedComments.length})
                 </button>
+                <button
+                  type="button"
+                  onClick={() => toggleBookmarkFilter("collections")}
+                  className={cn(
+                    "rounded-lg px-4 py-2 text-sm font-semibold border transition-colors",
+                    bookmarkFilters.collections
+                      ? "border-[#036aff] bg-[#036aff]/10 text-[#036aff]"
+                      : "border-gray-200 text-gray-600 hover:border-gray-300 hover:bg-gray-50"
+                  )}
+                >
+                  <Folder className="h-4 w-4 inline mr-2" />
+                  Collections ({bookmarkedCollections.length})
+                </button>
               </div>
             </div>
 
-            {filteredBookmarkedResources.length === 0 && filteredLikedThreads.length === 0 && filteredLikedComments.length === 0 ? (
+            {filteredBookmarkedResources.length === 0 && filteredLikedThreads.length === 0 && filteredLikedComments.length === 0 && filteredBookmarkedCollections.length === 0 ? (
               <Card className="border-2 border-dashed border-gray-200 rounded-xl">
                 <CardContent className="py-16 text-center">
                   <div className="w-20 h-20 rounded-full bg-gradient-to-br from-[#036aff]/10 to-[#036aff]/5 flex items-center justify-center mx-auto mb-6">
@@ -1191,7 +1458,7 @@ const CollectionPage = () => {
                   </div>
                   <h3 className="text-xl font-semibold text-[#141414] mb-2">No items found</h3>
                   <p className="text-base text-gray-500 max-w-md mx-auto">
-                    {bookmarkSearch ? "Try adjusting your search or filters to see more results." : "Start bookmarking resources and liking threads to see them here."}
+                    {bookmarkSearch ? "Try adjusting your search or filters to see more results." : "Start bookmarking resources, collections, and liking threads to see them here."}
                   </p>
                 </CardContent>
               </Card>
@@ -1362,6 +1629,121 @@ const CollectionPage = () => {
                             </CardContent>
                           </Card>
                         ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {bookmarkFilters.collections && (
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-lg bg-indigo-50">
+                        <Folder className="h-5 w-5 text-indigo-600" />
+                      </div>
+                      <div>
+                        <h3 className="text-lg font-semibold text-[#141414]">Bookmarked Collections</h3>
+                        <p className="text-sm text-gray-500">{filteredBookmarkedCollections.length} {filteredBookmarkedCollections.length === 1 ? "collection" : "collections"}</p>
+                      </div>
+                    </div>
+                    {filteredBookmarkedCollections.length === 0 ? (
+                      <Card className="border border-gray-200 rounded-lg">
+                        <CardContent className="py-8 text-center text-sm text-gray-500">
+                          No bookmarked collections match your current filters.
+                        </CardContent>
+                      </Card>
+                    ) : (
+                      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                        {filteredBookmarkedCollections.map((collection) => {
+                          const itemCount = collection.collection_items?.length || 0
+                          return (
+                            <Card
+                              key={collection.id}
+                              className="group border border-gray-200 rounded-lg shadow-sm hover:shadow-md transition-all"
+                            >
+                              <CardContent className="p-4">
+                                <div className="flex items-start justify-between gap-3 mb-3">
+                                  <div className="flex items-start gap-3 flex-1 min-w-0">
+                                    <div className="p-2 rounded-lg bg-indigo-50 shrink-0">
+                                      <Folder className="h-5 w-5 text-indigo-600" />
+                                    </div>
+                                    <div className="flex-1 min-w-0">
+                                      <h4 className="text-sm font-semibold text-[#141414] mb-1 line-clamp-1">
+                                        {collection.name}
+                                      </h4>
+                                      {collection.description && (
+                                        <p className="text-xs text-gray-600 line-clamp-2 leading-relaxed">
+                                          {collection.description}
+                                        </p>
+                                      )}
+                                {/* Owner Information */}
+                                {collection.owner && (
+                                  <div className="mt-1.5 flex items-center gap-1.5 text-xs text-gray-500">
+                                    <span>Created by</span>
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        navigate(`/profile/${collection.owner!.id}`)
+                                      }}
+                                      className="font-semibold text-[#141414] hover:text-[#036aff] transition-colors"
+                                    >
+                                      {collection.owner.student_code || collection.owner.display_name || "Unknown"}
+                                    </button>
+                                  </div>
+                                )}
+                                    </div>
+                                  </div>
+                                  <Badge variant="outline" className="border-green-200 text-green-700 bg-green-50 text-xs px-2 py-1 shrink-0">
+                                    <Globe2 className="h-3 w-3 mr-1" />
+                                    PUBLIC
+                                  </Badge>
+                                </div>
+                                <div className="flex items-center justify-between text-xs text-gray-500 mb-3">
+                                  <span>{itemCount} {itemCount === 1 ? "item" : "items"}</span>
+                                </div>
+                                {collection.tags && collection.tags.length > 0 && (
+                                  <div className="flex flex-wrap gap-1.5 mb-3">
+                                    {collection.tags.slice(0, 3).map((tag) => (
+                                      <Badge
+                                        key={tag}
+                                        variant="outline"
+                                        className="border-gray-200 text-xs px-1.5 py-0.5"
+                                      >
+                                        {tag}
+                                      </Badge>
+                                    ))}
+                                    {collection.tags.length > 3 && (
+                                      <Badge variant="outline" className="border-gray-200 text-xs px-1.5 py-0.5">
+                                        +{collection.tags.length - 3}
+                                      </Badge>
+                                    )}
+                                  </div>
+                                )}
+                                <div className="flex gap-2 pt-2 border-t border-gray-100">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="flex-1 border-gray-200 text-xs font-semibold text-[#141414] hover:bg-gray-50"
+                                    onClick={() => openViewDialog(collection)}
+                                  >
+                                    View
+                                  </Button>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="border-red-200 text-red-600 hover:bg-red-50 text-xs font-semibold"
+                                    onClick={() => {
+                                      if (confirm("Remove this collection from bookmarks?")) {
+                                        handleUnbookmarkCollection(collection.id)
+                                      }
+                                    }}
+                                  >
+                                    <Trash2 className="h-3 w-3" />
+                                  </Button>
+                                </div>
+                              </CardContent>
+                            </Card>
+                          )
+                        })}
                       </div>
                     )}
                   </div>
@@ -1695,10 +2077,24 @@ const CollectionPage = () => {
       <Dialog open={isAddItemDialogOpen} onOpenChange={setIsAddItemDialogOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle className="text-xl">Add Item to Collection</DialogTitle>
-            <DialogDescription className="text-base">
-              Add a resource, thread, comment, or external link to your collection.
-            </DialogDescription>
+            <div className="flex items-center justify-between">
+              <div>
+                <DialogTitle className="text-xl">Add Item to Collection</DialogTitle>
+                <DialogDescription className="text-base">
+                  Add a resource, thread, comment, or external link to your collection.
+                </DialogDescription>
+              </div>
+              <Button
+                className="bg-[#036aff] text-white font-bold hover:bg-[#036aff]/90 text-sm px-5 py-2.5"
+                onClick={() => {
+                  setIsAddItemDialogOpen(false)
+                  setIsUploadDialogOpen(true)
+                }}
+              >
+                <Upload className="h-4 w-4 mr-2" />
+                Upload New
+              </Button>
+            </div>
           </DialogHeader>
           <div className="space-y-5">
             <div>
@@ -1960,7 +2356,7 @@ const CollectionPage = () => {
                 className="w-full rounded-lg border border-gray-200 px-4 py-3 text-base outline-none focus:ring-2 focus:ring-[#036aff]/20"
               />
             </div>
-            <div className="flex justify-between gap-3 sm:justify-between">
+            <div className="flex justify-between gap-3">
               <Button
                 variant="ghost"
                 className="text-sm font-bold text-[#141414] hover:bg-[#f5f5f5]"
@@ -1968,12 +2364,181 @@ const CollectionPage = () => {
               >
                 Cancel
               </Button>
+              {(itemType === "RESOURCE" && selectedResourceId) || 
+               (itemType === "THREAD" && selectedThreadId) || 
+               (itemType === "COMMENT" && selectedCommentId) || 
+               (itemType === "EXTERNAL" && itemUrl.trim()) ? (
+                <Button
+                  className="bg-[#036aff] text-white font-bold hover:bg-[#036aff]/90 text-sm px-5 py-2.5"
+                  onClick={handleAddItem}
+                  disabled={loading}
+                >
+                  Add Selected
+                </Button>
+              ) : null}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Upload Dialog */}
+      <Dialog open={isUploadDialogOpen} onOpenChange={setIsUploadDialogOpen}>
+        <DialogContent className="sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-xl">Upload Files or URLs to Collection</DialogTitle>
+            <DialogDescription className="text-base">
+              Upload files, images, or add URLs with descriptions to add to your collection.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-5">
+            <div>
+              <label className="text-base font-medium mb-2 block">Title *</label>
+              <Input
+                value={uploadTitle}
+                onChange={(e) => setUploadTitle(e.target.value)}
+                placeholder="Enter a title for this item"
+                className="border-gray-200 text-base h-11"
+              />
+            </div>
+
+            <div>
+              <label className="text-base font-medium mb-2 block">Description</label>
+              <textarea
+                rows={3}
+                value={uploadDescription}
+                onChange={(e) => setUploadDescription(e.target.value)}
+                placeholder="Add a description (optional)"
+                className="w-full rounded-lg border border-gray-200 px-4 py-3 text-base outline-none focus:ring-2 focus:ring-[#036aff]/20"
+              />
+            </div>
+
+            <div>
+              <label className="text-base font-medium mb-2 block">Upload Files</label>
+              <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center">
+                <input
+                  type="file"
+                  multiple
+                  onChange={(e) => {
+                    const files = Array.from(e.target.files || [])
+                    setUploadFiles((prev) => [...prev, ...files])
+                  }}
+                  className="hidden"
+                  id="file-upload"
+                  accept="image/*,video/*,.pdf,.doc,.docx,.txt,.zip"
+                />
+                <label
+                  htmlFor="file-upload"
+                  className="cursor-pointer flex flex-col items-center gap-2"
+                >
+                  <Upload className="h-8 w-8 text-gray-400" />
+                  <span className="text-sm text-gray-600">
+                    Click to upload files or drag and drop
+                  </span>
+                  <span className="text-xs text-gray-400">
+                    Images, videos, documents, etc.
+                  </span>
+                </label>
+              </div>
+              {uploadFiles.length > 0 && (
+                <div className="mt-3 space-y-2">
+                  {uploadFiles.map((file, index) => (
+                    <div
+                      key={index}
+                      className="flex items-center justify-between p-2 bg-gray-50 rounded-lg"
+                    >
+                      <div className="flex items-center gap-2">
+                        <FileText className="h-4 w-4 text-gray-400" />
+                        <span className="text-sm text-gray-700">{file.name}</span>
+                        <span className="text-xs text-gray-400">
+                          ({(file.size / 1024).toFixed(1)} KB)
+                        </span>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setUploadFiles((prev) => prev.filter((_, i) => i !== index))
+                        }}
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div>
+              <label className="text-base font-medium mb-2 block">Add URLs</label>
+              <div className="flex gap-2">
+                <Input
+                  value={newUrlInput}
+                  onChange={(e) => setNewUrlInput(e.target.value)}
+                  placeholder="https://example.com"
+                  className="border-gray-200 text-base h-11"
+                  onKeyPress={(e) => {
+                    if (e.key === "Enter" && newUrlInput.trim()) {
+                      setUploadUrls((prev) => [...prev, newUrlInput.trim()])
+                      setNewUrlInput("")
+                    }
+                  }}
+                />
+                <Button
+                  type="button"
+                  onClick={() => {
+                    if (newUrlInput.trim()) {
+                      setUploadUrls((prev) => [...prev, newUrlInput.trim()])
+                      setNewUrlInput("")
+                    }
+                  }}
+                  className="bg-[#036aff] text-white hover:bg-[#036aff]/90"
+                >
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </div>
+              {uploadUrls.length > 0 && (
+                <div className="mt-3 space-y-2">
+                  {uploadUrls.map((url, index) => (
+                    <div
+                      key={index}
+                      className="flex items-center justify-between p-2 bg-gray-50 rounded-lg"
+                    >
+                      <div className="flex items-center gap-2">
+                        <LinkIcon className="h-4 w-4 text-gray-400" />
+                        <span className="text-sm text-gray-700 truncate">{url}</span>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setUploadUrls((prev) => prev.filter((_, i) => i !== index))
+                        }}
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-between gap-3 sm:justify-between">
+              <Button
+                variant="ghost"
+                className="text-sm font-bold text-[#141414] hover:bg-[#f5f5f5]"
+                onClick={() => {
+                  setIsUploadDialogOpen(false)
+                  resetUploadForm()
+                }}
+              >
+                Cancel
+              </Button>
               <Button
                 className="bg-[#036aff] text-white font-bold hover:bg-[#036aff]/90 text-sm px-5 py-2.5"
-                onClick={handleAddItem}
-                disabled={loading}
+                onClick={handleUploadToCollection}
+                disabled={loading || (!uploadTitle.trim() || (uploadFiles.length === 0 && uploadUrls.length === 0))}
               >
-                Add Item
+                {loading ? "Uploading..." : "Upload & Add"}
               </Button>
             </div>
           </div>
@@ -2012,6 +2577,27 @@ const CollectionPage = () => {
                     <Badge className="bg-[#036aff]/10 text-[#036aff] text-xs font-semibold px-3 py-1 rounded-full">
                       Owner: You
                     </Badge>
+                  )}
+                  {selectedCollection && user && selectedCollection.owner_id !== user.id && (
+                    <>
+                      {getBookmarkedCollectionIds().includes(selectedCollection.id) && (
+                        <Badge className="bg-blue-50 text-blue-700 border border-blue-200 text-xs font-semibold px-3 py-1 rounded-full">
+                          <Bookmark className="h-3 w-3 mr-1 inline" />
+                          Bookmarked
+                        </Badge>
+                      )}
+                      {selectedCollection.owner && (
+                        <button
+                          onClick={() => navigate(`/profile/${selectedCollection.owner!.id}`)}
+                          className="flex items-center gap-2 text-sm text-gray-600 hover:text-[#036aff] transition-colors px-3 py-1 rounded-full hover:bg-gray-50"
+                        >
+                          <User className="h-4 w-4" />
+                          <span className="font-medium">
+                            {selectedCollection.owner.student_code || selectedCollection.owner.display_name || "Unknown"}
+                          </span>
+                        </button>
+                      )}
+                    </>
                   )}
                 </div>
                 {selectedCollection?.description && (
@@ -2105,79 +2691,77 @@ const CollectionPage = () => {
                       className="group border border-gray-200 rounded-xl shadow-sm hover:shadow-lg transition-all"
                     >
                       <CardContent className="p-6">
-                        {/* Header with type badge and actions */}
-                        <div className="flex items-start justify-between gap-4 mb-4">
-                          <div className="flex items-center gap-3 flex-1 min-w-0">
+                        {/* Header with icon, badge, and title */}
+                        <div className="flex items-start gap-4 mb-4">
+                          <div className={cn(
+                            "flex items-center justify-center w-12 h-12 rounded-lg shrink-0",
+                            item.type === "RESOURCE" ? "bg-orange-50" :
+                            item.type === "THREAD" ? "bg-green-50" :
+                            item.type === "COMMENT" ? "bg-purple-50" :
+                            "bg-blue-50"
+                          )}>
                             <div className={cn(
-                              "flex items-center justify-center w-12 h-12 rounded-xl",
-                              item.type === "RESOURCE" ? "bg-orange-50" :
-                              item.type === "THREAD" ? "bg-green-50" :
-                              item.type === "COMMENT" ? "bg-purple-50" :
-                              "bg-blue-50"
+                              item.type === "RESOURCE" ? "text-orange-600" :
+                              item.type === "THREAD" ? "text-green-600" :
+                              item.type === "COMMENT" ? "text-purple-600" :
+                              "text-blue-600"
                             )}>
-                              <div className={cn(
-                                item.type === "RESOURCE" ? "text-orange-600" :
-                                item.type === "THREAD" ? "text-green-600" :
-                                item.type === "COMMENT" ? "text-purple-600" :
-                                "text-blue-600"
-                              )}>
-                                {getItemTypeIcon(item.type)}
-                              </div>
+                              {getItemTypeIcon(item.type)}
                             </div>
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-2 mb-1">
-                                <Badge
-                                  variant="outline"
-                                  className={cn(
-                                    "text-xs px-2.5 py-1 font-semibold",
-                                    item.type === "RESOURCE" ? "border-orange-200 text-orange-700" :
-                                    item.type === "THREAD" ? "border-green-200 text-green-700" :
-                                    item.type === "COMMENT" ? "border-purple-200 text-purple-700" :
-                                    "border-blue-200 text-blue-700"
-                                  )}
-                                >
-                                  {getItemTypeLabel(item.type)}
-                                </Badge>
-                                <span className="text-xs text-gray-400">
-                                  #{index + 1}
-                                </span>
-                              </div>
-                              
-                              {/* Resource Title */}
-                              {item.type === "RESOURCE" && item.reference_id && resourceIndex[item.reference_id] && (
-                                <h3 className="text-base font-semibold text-[#141414] line-clamp-2 mt-1">
-                                  {resourceIndex[item.reference_id].title}
-                                </h3>
-                              )}
-                              
-                              {/* Thread Title */}
-                              {item.type === "THREAD" && threadData && (
-                                <h3 className="text-base font-semibold text-[#141414] line-clamp-2 mt-1">
-                                  {threadData.title}
-                                </h3>
-                              )}
-                              
-                              {/* Comment Preview */}
-                              {item.type === "COMMENT" && commentData && (
-                                <div className="mt-1">
-                                  <p className="text-sm text-gray-600 line-clamp-2">
-                                    {commentData.comment.text}
-                                  </p>
-                                  <p className="text-xs text-gray-400 mt-1">
-                                    From thread: {commentData.thread.title}
-                                  </p>
-                                </div>
-                              )}
-                              
-                              {/* External URL */}
-                              {item.type === "EXTERNAL" && item.url && (
-                                <div className="mt-1">
-                                  <p className="text-sm text-gray-500 line-clamp-1">
-                                    {getExternalHost(item.url)}
-                                  </p>
-                                </div>
-                              )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-2">
+                              <Badge
+                                variant="outline"
+                                className={cn(
+                                  "text-xs px-2.5 py-1 font-semibold",
+                                  item.type === "RESOURCE" ? "border-orange-200 text-orange-700 bg-orange-50" :
+                                  item.type === "THREAD" ? "border-green-200 text-green-700 bg-green-50" :
+                                  item.type === "COMMENT" ? "border-purple-200 text-purple-700 bg-purple-50" :
+                                  "border-blue-200 text-blue-700 bg-blue-50"
+                                )}
+                              >
+                                {getItemTypeLabel(item.type)}
+                              </Badge>
+                              <span className="text-xs text-gray-400">
+                                #{index + 1}
+                              </span>
                             </div>
+                            
+                            {/* Resource Title */}
+                            {item.type === "RESOURCE" && item.reference_id && resourceIndex[item.reference_id] && (
+                              <h3 className="text-base font-semibold text-[#141414] line-clamp-2">
+                                {resourceIndex[item.reference_id].title}
+                              </h3>
+                            )}
+                            
+                            {/* Thread Title */}
+                            {item.type === "THREAD" && threadData && (
+                              <h3 className="text-base font-semibold text-[#141414] line-clamp-2">
+                                {threadData.title}
+                              </h3>
+                            )}
+                            
+                            {/* Comment Preview */}
+                            {item.type === "COMMENT" && commentData && (
+                              <div>
+                                <p className="text-sm text-gray-600 line-clamp-2">
+                                  {commentData.comment.text}
+                                </p>
+                                <p className="text-xs text-gray-400 mt-1">
+                                  From thread: {commentData.thread.title}
+                                </p>
+                              </div>
+                            )}
+                            
+                            {/* External URL */}
+                            {item.type === "EXTERNAL" && item.url && (
+                              <div>
+                                <p className="text-sm text-gray-500 line-clamp-1">
+                                  {getExternalHost(item.url)}
+                                </p>
+                              </div>
+                            )}
                           </div>
                           
                           {/* Action Buttons */}
@@ -2330,18 +2914,6 @@ const CollectionPage = () => {
                 <p className="text-base text-gray-500 text-center max-w-sm mb-6">
                   This collection is empty. Start adding resources, threads, comments, or external links.
                 </p>
-                {selectedCollection && user && selectedCollection.owner_id === user.id && (
-                  <Button
-                    className="bg-[#036aff] text-white font-bold hover:bg-[#036aff]/90 text-sm px-5 py-2.5"
-                    onClick={() => {
-                      setIsViewDialogOpen(false)
-                      openAddItemDialog(selectedCollection)
-                    }}
-                  >
-                    <Plus className="h-5 w-5 mr-2" />
-                    Add Your First Item
-                  </Button>
-                )}
               </div>
             )}
           </div>

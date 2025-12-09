@@ -43,6 +43,12 @@ export interface Collection {
   created_at: string;
   updated_at: string;
   collection_items?: CollectionItem[];
+  owner?: {
+    id: string;
+    student_code: string;
+    email: string;
+    display_name?: string;
+  };
 }
 
 export interface CreateCollectionRequest {
@@ -93,6 +99,7 @@ function mapBackendToFrontend(backend: BackendCollection): Collection {
     created_at: backend.created_at,
     updated_at: backend.created_at, // Backend doesn't have updated_at, use created_at
     collection_items,
+    owner: backend.owner, // Preserve owner data from backend
   };
 }
 
@@ -155,10 +162,34 @@ async function handleResponse<T>(response: Response): Promise<T> {
 
 // Get all collections
 export async function getAllCollections(
-  accessToken?: string
+  accessToken?: string,
+  options?: {
+    filter?: 'all' | 'my' | 'public';
+    is_public?: boolean;
+    tag?: string;
+    search?: string;
+  }
 ): Promise<Collection[]> {
   try {
-    const response = await fetch(API_BASE_URL, {
+    const queryParams = new URLSearchParams();
+    if (options?.filter) {
+      queryParams.append('filter', options.filter);
+    }
+    if (options?.is_public !== undefined) {
+      queryParams.append('is_public', String(options.is_public));
+    }
+    if (options?.tag) {
+      queryParams.append('tag', options.tag);
+    }
+    if (options?.search) {
+      queryParams.append('search', options.search);
+    }
+
+    const url = queryParams.toString() 
+      ? `${API_BASE_URL}?${queryParams.toString()}`
+      : API_BASE_URL;
+
+    const response = await fetch(url, {
       headers: getHeaders(accessToken),
     });
 
